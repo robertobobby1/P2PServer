@@ -5,6 +5,7 @@
 #include <thread>
 #include <mutex>
 #include <queue>
+#include <unordered_map>
 
 #if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
 #    include <sys/socket.h>
@@ -20,6 +21,13 @@
 
 namespace Server {
 
+	struct Lobby {
+		std::string ID_Lobby;
+		SOCKET peer1;
+		SOCKET peer2;
+	};
+
+	inline const int UUID_LENGTH = 6;
 	inline const int MAX_WORKERS = 10;
 	inline const int PORT = 3000;
 
@@ -37,6 +45,8 @@ namespace Server {
 	void setTSQueue(SOCKET socket);
 	SOCKET getTSQueue();
 
+	std::string generateNewUUID();
+
 	inline SOCKET SERVER_SOCKET;
 
 	inline std::vector<std::thread> WORKERS;
@@ -46,6 +56,7 @@ namespace Server {
 	inline std::mutex activeConnectionsMutex;
 	inline std::mutex queueMutex;
 	inline std::condition_variable queueCondition;
+	inline std::unordered_map<std::string, Lobby> LOBBIES;
 
 	inline bool keepRunning = true;
 

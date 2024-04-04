@@ -2,6 +2,7 @@
 
 void Server::run()
 {
+    srand((unsigned)time(NULL));
     SOCKET_QUEUE = std::queue<SOCKET>();
 
     for (unsigned int i = 0; i < MAX_WORKERS; i++) {
@@ -18,7 +19,6 @@ void Server::run()
         }
 
         printf("New connection!");
-
         setTSQueue(AcceptSocket);
         queueCondition.notify_one();
     }
@@ -67,6 +67,7 @@ void Server::runWorker() {
 
     while (true) {
         // Blocking until the thread gets a task (New conexion)
+        openConexion = true;
         clientSocket = getTSQueue();
         incrementActiveConexions();
         while (openConexion) {
@@ -80,7 +81,6 @@ void Server::runWorker() {
         }
     }
 }
-
 
 void Server::onError(SOCKET socket, bool closeSocket) {
     if (closeSocket) {
@@ -125,4 +125,23 @@ void Server::reduceActiveConexions() {
 void Server::incrementActiveConexions() {
     std::lock_guard<std::mutex> lock(activeConnectionsMutex);
     activeConnexions++;
+}
+
+std::string Server::generateNewUUID() {
+    static const char alphanum[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+    std::string UUID;
+    UUID.reserve(UUID_LENGTH);
+
+    for (int i = 0; i < UUID_LENGTH; ++i) {
+        UUID += alphanum[rand() % (sizeof(alphanum) - 1)];
+    }
+
+    if (LOBBIES.find(UUID) != LOBBIES.end()) {
+        return generateNewUUID();
+    }
+
+    return UUID;
 }
