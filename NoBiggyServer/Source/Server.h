@@ -41,15 +41,15 @@ namespace Server {
 	inline const int BACKLOG = 10;
 
 	void run();
-	bool setup();
+	bool startServer();
 
 	void runWorker();
 
 	void reduceActiveConexions();
 	void incrementActiveConexions();
 
-	void onError(NoBiggySocket socket, bool closeSocket);
-	bool checkForErrors(NoBiggySocket socket, int errorMacro, bool closeSocket = false);
+	void onError(NoBiggySocket socket, bool closeSocket, const char* errorMessage);
+	bool checkForErrors(NoBiggySocket socket, int errorMacro, const char* errorMessage, bool closeSocket = false);
 
 	void setTSQueue(NoBiggySocket socket);
 	NoBiggySocket getTSQueue();

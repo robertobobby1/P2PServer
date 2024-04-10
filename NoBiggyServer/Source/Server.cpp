@@ -2,7 +2,7 @@
 
 #if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
 
-bool Server::setup() {
+bool Server::startServer() {
     SERVER_SOCKET = socket(AF_INET, SOCK_STREAM, 0);
 
     sockaddr_in serverAddress;
@@ -10,21 +10,22 @@ bool Server::setup() {
     serverAddress.sin_port = htons(PORT);
     serverAddress.sin_addr.s_addr = INADDR_ANY;
 
-    if (checkForErrors(bind(SERVER_SOCKET, (sockaddr *)&serverAddress, sizeof(serverAddress)), -1)) 
+    if (checkForErrors(bind(SERVER_SOCKET, (sockaddr *)&serverAddress, sizeof(serverAddress)), -1, "[S]Error on socket binding")) 
         return false;
-    
 
-    if (checkForErrors(listen(SERVER_SOCKET, BACKLOG), -1))
+    if (checkForErrors(listen(SERVER_SOCKET, BACKLOG), -1, "[S]Error while starting to listen on port"))
         return false;
     
     return true;
 }
 
-void Server::onError(NoBiggySocket socket, bool closeSocket) {}
+void Server::onError(NoBiggySocket socket, bool closeSocket, const char* errorMessage) {
+    printf(errorMessage);
+}
 
 #elif defined(PLATFORM_WINDOWS)
 
-bool Server::setup() {
+bool Server::startServer() {
     WSADATA wsaData;
     sockaddr_in service;
     service.sin_family = AF_INET;
@@ -38,17 +39,18 @@ bool Server::setup() {
     }
 
     SERVER_SOCKET = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (checkForErrors(SERVER_SOCKET, INVALID_SOCKET, false))
+    if (checkForErrors(SERVER_SOCKET, INVALID_SOCKET, "[S]Error on socket creation", false))
         return false;
 
-    if (checkForErrors(bind(SERVER_SOCKET, (SOCKADDR*)&service, sizeof(service)), SOCKET_ERROR, true))
+    // If error on socket binding it may mean that the port is in use, we can search a new one! 
+    if (checkForErrors(bind(SERVER_SOCKET, (SOCKADDR*)&service, sizeof(service)), SOCKET_ERROR, "[S]Error on socket binding", true))
         return false;
 
-    if (checkForErrors(listen(SERVER_SOCKET, 1), SOCKET_ERROR, true))
+    if (checkForErrors(listen(SERVER_SOCKET, 1), SOCKET_ERROR, "[S]Error while starting to listen on port", true))
         return false;
 
     unsigned long blocking_mode = 0;
-    if (checkForErrors(ioctlsocket(SERVER_SOCKET, FIONBIO, &blocking_mode), -1, true))
+    if (checkForErrors(ioctlsocket(SERVER_SOCKET, FIONBIO, &blocking_mode), -1, "[S]Error while setting the blocking mode", true))
         return false;
 
     return true;
@@ -58,7 +60,7 @@ void Server::onError(NoBiggySocket socket, bool closeSocket) {
     if (closeSocket) {
         closesocket(socket);
     }
-    std::cout << WSAGetLastError() << std::endl;
+    printf("%s --- winsock2 error code is: %i\n", errorMessage, WSAGetLastError());
     WSACleanup();
 }
 
@@ -73,7 +75,7 @@ void Server::run()
         WORKERS.push_back(std::thread(runWorker));
     }
 
-    setup();
+    startServer();
     printf("Listenting for new connections in port %i", PORT);
 
     while (keepRunning) {
@@ -145,10 +147,10 @@ void Server::incrementActiveConexions() {
     activeConnexions++;
 }
 
-bool Server::checkForErrors(NoBiggySocket socket, int errorMacro, bool closeSocket)
+bool Server::checkForErrors(NoBiggySocket socket, int errorMacro, const char* errorMessage, bool closeSocket)
 {
     if (socket == errorMacro) {
-        onError(socket, closeSocket);
+        onError(socket, closeSocket, errorMessage);
         return true;
     }
     return false;
