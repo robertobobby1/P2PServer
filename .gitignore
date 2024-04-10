@@ -411,3 +411,6 @@ NoBiggy/Debug/**
 NoBiggy/Release/**
 x64/**
 NoBiggy/x64/**
+
+*.make
+Makefile

@@ -75,8 +75,10 @@ void Server::run()
         WORKERS.push_back(std::thread(runWorker));
     }
 
-    startServer();
-    printf("Listenting for new connections in port %i", PORT);
+    if (!startServer())
+        return;
+
+    printf("Listenting for new connections in port %i\n", PORT);
 
     while (keepRunning) {
         NoBiggySocket AcceptSocket = accept(SERVER_SOCKET, NULL, NULL);
