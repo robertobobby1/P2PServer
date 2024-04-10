@@ -34,7 +34,7 @@ bool Server::startServer() {
 
     int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (iResult != NO_ERROR) {
-        onError(SERVER_SOCKET, false);
+        onError(SERVER_SOCKET, false, "");
         return false;
     }
 
@@ -56,7 +56,7 @@ bool Server::startServer() {
     return true;
 }
 
-void Server::onError(NoBiggySocket socket, bool closeSocket) {
+void Server::onError(NoBiggySocket socket, bool closeSocket, const char* errorMessage) {
     if (closeSocket) {
         closesocket(socket);
     }
