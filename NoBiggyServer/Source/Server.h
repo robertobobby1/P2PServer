@@ -19,38 +19,47 @@
 #    include <Windows.h>
 #endif
 
+#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
+	typedef int NoBiggySocket;
+#	define NoBiggyAcceptSocketError -1 
+#elif defined(PLATFORM_WINDOWS)
+	typedef SOCKET NoBiggySocket;
+#	define NoBiggyAcceptSocketError INVALID_SOCKET
+#endif
+
 namespace Server {
 
 	struct Lobby {
 		std::string ID_Lobby;
-		SOCKET peer1;
-		SOCKET peer2;
+		NoBiggySocket peer1;
+		NoBiggySocket peer2;
 	};
 
 	inline const int UUID_LENGTH = 6;
 	inline const int MAX_WORKERS = 10;
 	inline const int PORT = 3000;
+	inline const int BACKLOG = 10;
 
 	void run();
-	void setup();
+	bool setup();
 
 	void runWorker();
 
 	void reduceActiveConexions();
 	void incrementActiveConexions();
 
-	void onError(SOCKET socket, bool closeSocket);
-	bool checkForErrors(SOCKET socket, int errorMacro, bool closeSocket);
+	void onError(NoBiggySocket socket, bool closeSocket);
+	bool checkForErrors(NoBiggySocket socket, int errorMacro, bool closeSocket = false);
 
-	void setTSQueue(SOCKET socket);
-	SOCKET getTSQueue();
+	void setTSQueue(NoBiggySocket socket);
+	NoBiggySocket getTSQueue();
 
 	std::string generateNewUUID();
 
-	inline SOCKET SERVER_SOCKET;
+	inline NoBiggySocket SERVER_SOCKET;
 
 	inline std::vector<std::thread> WORKERS;
-	inline std::queue<SOCKET> SOCKET_QUEUE;
+	inline std::queue<NoBiggySocket> SOCKET_QUEUE;
 	inline int activeConnexions = 0;
 
 	inline std::mutex activeConnectionsMutex;
@@ -59,5 +68,4 @@ namespace Server {
 	inline std::unordered_map<std::string, Lobby> LOBBIES;
 
 	inline bool keepRunning = true;
-
 }
