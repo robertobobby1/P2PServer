@@ -8,7 +8,6 @@
 #    ifdef _WIN64
 #    endif
 
-
 #elif __APPLE__
 #    include <TargetConditionals.h>
 #    if TARGET_IPHONE_SIMULATOR
@@ -21,7 +20,6 @@
 #    else
 #        error "Unknown Apple platform"
 #    endif
-
 
 #elif __ANDROID__
 #    ifndef PLATFORM_LINUX
@@ -43,13 +41,12 @@
 #    error("Unknown compiler")
 #endif
 
-
 #ifdef PLATFORM_LINUX
-#pragma message ("This is linux")
+#    pragma message("This is linux")
 #elif defined(PLATFORM_MACOS)
-#pragma message ("This is MacOS")
+#    pragma message("This is MacOS")
 #elif defined(PLATFORM_WINDOWS)
-#pragma message ("This is Windows")
-#else 
-#pragma message ("This is an unknown OS")
+#    pragma message("This is Windows")
+#else
+#    pragma message("This is an unknown OS")
 #endif

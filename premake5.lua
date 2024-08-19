@@ -29,11 +29,14 @@ workspace "Server"
 		{
 			"%{wks.location}/NoBiggyServer/Source/**.h",
 			"%{wks.location}/NoBiggyServer/Source/**.cpp",
+			"%{wks.location}/NoBiggyServer/Tests/**.h",
+			"%{wks.location}/NoBiggyServer/Tests/**.cpp",
 		}
 		includedirs
 		{
-			"%{wks.location}/R-core/src",
-		}		
+			"%{wks.location}/NoBiggyServer/Source",
+			"%{wks.location}/NoBiggyServer/Tests",
+		}
 
 		filter "configurations:Debug"
 			defines "RC_DEBUG"

@@ -1,4 +1,404 @@
-#include "Server.h"
+
+
+// begin --- NetworkUtils.cpp --- 
+
+
+
+// begin --- NetworkUtils.h --- 
+
+#pragma once
+
+// begin --- NetworkStructs.h --- 
+
+#pragma once
+
+// begin --- Platform.h --- 
+
+#pragma once
+
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#    pragma message("WIN32 || _WIN32 || __WIN32__ || __NT__")
+#    ifndef PLATFORM_WINDOWS
+#        define PLATFORM_WINDOWS
+#    endif
+#    ifdef _WIN64
+#    endif
+
+#elif __APPLE__
+#    include <TargetConditionals.h>
+#    if TARGET_IPHONE_SIMULATOR
+#    elif TARGET_OS_MACCATALYST
+#    elif TARGET_OS_IPHONE
+#    elif TARGET_OS_MAC
+#        ifndef PLATFORM_MACOS
+#            define PLATFORM_MACOS
+#        endif
+#    else
+#        error "Unknown Apple platform"
+#    endif
+
+#elif __ANDROID__
+#    ifndef PLATFORM_LINUX
+#        define PLATFORM_LINUX
+#    endif
+#elif __linux__
+#    ifndef PLATFORM_LINUX
+#        define PLATFORM_LINUX
+#    endif
+#elif __unix__
+#    ifndef PLATFORM_LINUX
+#        define PLATFORM_LINUX
+#    endif
+#elif defined(_POSIX_VERSION)
+#    ifndef PLATFORM_LINUX
+#        define PLATFORM_LINUX
+#    endif
+#else
+#    error("Unknown compiler")
+#endif
+
+#ifdef PLATFORM_LINUX
+#    pragma message("This is linux")
+#elif defined(PLATFORM_MACOS)
+#    pragma message("This is MacOS")
+#elif defined(PLATFORM_WINDOWS)
+#    pragma message("This is Windows")
+#else
+#    pragma message("This is an unknown OS")
+#endif
+
+// end --- Platform.h --- 
+
+
+#include <cstdint>
+#include <iostream>
+#include <shared_mutex>
+
+#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
+typedef int NoBiggySocket;
+#    define NoBiggyAcceptSocketError -1
+#elif defined(PLATFORM_WINDOWS)
+typedef SOCKET NoBiggySocket;
+#    define NoBiggyAcceptSocketError INVALID_SOCKET
+#endif
+
+#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
+#    include <sys/socket.h>
+#    include <netinet/in.h>
+#    include <netinet/tcp.h>
+#    include <arpa/inet.h>
+#    include <unistd.h>
+#    include <fcntl.h>
+#elif defined(PLATFORM_WINDOWS)
+#    include <WinSock2.h>
+#    include <ws2tcpip.h>
+#    pragma comment(lib, "winmm.lib")
+#    pragma comment(lib, "WS2_32.lib")
+#    include <Windows.h>
+#endif
+
+// Client-Server data flags
+enum ClientServerHeaderFlags {
+    // Type of the lobby public/private
+    ClientServerHeaderFlags_Public = 1 << 5,  // 00100000
+    // Type of the action we are trying create/connect/disconnect/peersConnectSuccess
+    ClientServerHeaderFlags_Bit1 = 1 << 7,  // 10000000
+    ClientServerHeaderFlags_Bit2 = 1 << 6,  // 01000000
+};
+
+// Server-Client data flags
+enum ServerClientHeaderFlags {
+    // Action of the request
+    ServerClientHeaderFlags_Action = 1 << 7,  // 10000000
+};
+
+enum LobbyPrivacyType {
+    Private,
+    Public
+};
+
+enum ActionType {
+    Create,
+    Connect,
+    Disconnect,
+    PeerConnectSuccess
+};
+
+struct Peer {
+    NoBiggySocket socket;
+    // always 4 bytes B1.B2.B3.B4 it is already in network order!
+    in_addr ipAddress;
+    uint16_t port;
+    uint8_t family;
+    uint32_t averageRTT;
+
+    void print() {
+        printf("Peer information:\n");
+        printf("Peer Address Family: %d\n", this->family);
+        printf("Peer Port: %d\n", this->port);
+        printf("Peer IP Address: %s\n", inet_ntoa(this->ipAddress));
+        printf("Average RTT: %i\n", this->averageRTT);
+    }
+};
+
+struct Lobby {
+    // private to protect with mutex
+   private:
+    Peer peer2;
+    bool isLobbyComplete = false;
+
+   public:
+    std::string ID_Lobby;
+    Peer peer1;
+    LobbyPrivacyType lobbyPrivacyType;
+    bool peerConnectionSendFailure = false;
+
+    bool IsLobbyComplete(std::mutex* mutex) {
+        std::lock_guard<std::mutex> lock(*mutex);
+        return isLobbyComplete;
+    };
+    bool SetPeer2IfPossible(Peer peer, std::mutex* mutex) {
+        std::lock_guard<std::mutex> lock(*mutex);
+        if (!isLobbyComplete) {
+            peer2 = peer;
+            isLobbyComplete = true;
+            return true;
+        }
+
+        return false;
+    }
+    Peer GetPeer2(std::mutex* mutex) {
+        std::lock_guard<std::mutex> lock(*mutex);
+        return peer2;
+    };
+
+    void Print() {
+        printf("\nStart lobby info ---- %s\n\n", this->ID_Lobby.c_str());
+        printf("Peer 1:\n");
+        this->peer1.print();
+        printf("\nPeer 2:\n");
+        this->peer2.print();
+        printf("\nEnd lobby info   ---- %s\n\n", this->ID_Lobby.c_str());
+    }
+};
+
+// end --- NetworkStructs.h --- 
+
+
+
+namespace NetworkUtils {
+    Peer getPeerInfo(NoBiggySocket clientSocket);
+    uint32_t getRTTOfClient(NoBiggySocket clientSocket);
+
+}  // namespace NetworkUtils
+
+// end --- NetworkUtils.h --- 
+
+
+
+#if defined(PLATFORM_MACOS)
+
+uint32_t NetworkUtils::getRTTOfClient(NoBiggySocket clientSocket) {
+    struct tcp_connection_info info;
+    socklen_t info_len = sizeof(info);
+
+    int result = getsockopt(clientSocket, IPPROTO_TCP, TCP_CONNECTION_INFO, &info, &info_len);
+
+    return info.tcpi_srtt;
+}
+
+#elif defined(PLATFORM_LINUX)
+
+uint32_t NetworkUtils::getRTTOfClient(NoBiggySocket clientSocket) {
+    struct tcp_info info;
+    socklen_t info_len = sizeof(info);
+
+    int result = getsockopt(clientSocket, IPPROTO_TCP, TCP_INFO, &info, &info_len);
+
+    return info.tcpi_srtt;
+}
+
+#elif defined(PLATFORM_WINDOWS)
+
+uint32_t NetworkUtils::getRTTOfClient(NoBiggySocket clientSocket) {
+    // TODO how to get RTT in windows
+}
+
+#endif
+
+Peer NetworkUtils::getPeerInfo(NoBiggySocket clientSocket) {
+    struct sockaddr_in peeraddr;
+    socklen_t peeraddrlen;
+    auto retval = getpeername(clientSocket, (struct sockaddr*)&peeraddr, &peeraddrlen);
+
+    Peer clientInfo;
+    clientInfo.family = peeraddr.sin_family;
+    clientInfo.ipAddress = peeraddr.sin_addr;
+    clientInfo.port = ntohs(peeraddr.sin_port);
+    clientInfo.socket = clientSocket;
+    clientInfo.averageRTT = getRTTOfClient(clientSocket);
+
+    return clientInfo;
+}
+
+
+// end --- NetworkUtils.cpp --- 
+
+
+
+// begin --- Server.cpp --- 
+
+
+
+// begin --- Server.h --- 
+
+#pragma once
+
+#include <vector>
+#include <iostream>
+#include <cstdint>
+#include <thread>
+#include <mutex>
+#include <queue>
+#include <unordered_map>
+
+// begin --- Common.h --- 
+
+#pragma once
+
+#include <cstdint>
+#include <queue>
+
+namespace Common {
+    inline bool isInRange(int value, int lowRange, int highRange) {
+        return value <= highRange && value >= lowRange;
+    }
+
+    inline bool isFlagSet(uint8_t flagObject, uint8_t flag) {
+        return 0 != (flagObject & flag);
+    }
+
+    inline void setFlag(uint8_t &flagObject, uint8_t flag) {
+        flagObject |= flag;
+    }
+
+    inline void unsetFlag(uint8_t &flagObject, uint8_t flag) {
+        flagObject &= ~flag;
+    }
+
+    template <typename T>
+    inline T getFromQueue(std::queue<T> &queue) {
+        if (queue.empty()) {
+            if constexpr (std::is_same_v<T, std::string>) {
+                return "";
+            } else if constexpr (std::is_same_v<T, int>) {
+                return -1;
+            } else {
+                return nullptr;
+            }
+        }
+
+        auto value = queue.front();
+        queue.pop();
+        return value;
+    }
+
+    template <typename T>
+    inline T getThreadSafeFromQueue(std::queue<T> &queue, std::mutex &queueMutex) {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        return getFromQueue(queue);
+    }
+
+    template <typename T>
+    inline T getThreadSafeFromQueue(std::queue<T> &queue, std::mutex &queueMutex, std::condition_variable &condition) {
+        std::unique_lock<std::mutex> lock(queueMutex);
+        condition.wait(lock);
+        return getFromQueue(queue);
+    }
+
+    template <typename T>
+    inline void setThreadSafeToQueue(std::queue<T> &queue, std::mutex &queueMutex, T value) {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        queue.push(value);
+    }
+
+    inline std::string generateUUID(int length) {
+        static const char alphanum[] =
+            "0123456789"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "abcdefghijklmnopqrstuvwxyz";
+        std::string uuid;
+        uuid.reserve(length);
+
+        for (int i = 0; i < length; ++i) {
+            uuid += alphanum[rand() % (sizeof(alphanum) - 1)];
+        }
+        return uuid;
+    };
+
+    inline int randomNumber(int min, int max) {
+        return rand() % (max - min + 1) + min;
+    }
+
+    inline unsigned int randomUintNumber(int min, int max) {
+        return (unsigned int)(rand() % (max - min + 1) + min);
+    }
+}  // namespace Common
+
+// end --- Common.h --- 
+
+
+
+namespace Server {
+    inline const int UUID_LENGTH = 6;
+    inline const int MAX_workers = 10;
+    inline const int PORT = 3000;
+    inline const int BACKLOG = 10;
+    inline const long TIMEOUT = 1;  // in seconds
+    inline const int SECURITY_HEADER_LENGTH = 19;
+    inline const char *SECURITY_HEADER = "";
+
+    void run();
+    void runWorker();
+    inline std::vector<std::thread> workers;
+
+    bool startServer();
+    bool setServerNonBlockingMode();
+    void onError(NoBiggySocket socket, bool closeSocket, const char *errorMessage);
+    bool checkForErrors(NoBiggySocket socket, int errorMacro, const char *errorMessage, bool closeSocket = false);
+    void addFDToSet(NoBiggySocket socket);
+    void removeFDFromSet(NoBiggySocket socket);
+    inline std::queue<NoBiggySocket> socketsToCloseQueue;
+    inline std::mutex socketsToCloseQueueMutex;
+    inline std::vector<NoBiggySocket> activeSockets;
+    inline fd_set readSocketsFDSet;
+    inline NoBiggySocket serverSocket;
+    inline bool keepRunning = true;
+
+    inline std::queue<NoBiggySocket> socketQueue;
+    inline std::mutex socketQueueMutex;
+    inline std::condition_variable socketQueueCondition;
+
+    inline std::mutex matchMakingQueueMutex;
+    inline std::queue<std::string> matchMakingQueue;
+
+    void handleRequest(const char *buffer, int bytesReceived, NoBiggySocket clientSocket);
+    bool isValidSecurityHeader(const char *buffer);
+    ActionType getActionTypeFromHeaderByte(uint8_t headerByte);
+    LobbyPrivacyType getLobbyPrivacyTypeFromHeaderByte(uint8_t headerByte);
+    void sendUuidToClient(NoBiggySocket clientSocket, std::string &uuid);
+    void connectPeersIfNecessary(std::string &uuid);
+
+    std::string findRandomMatch(NoBiggySocket clientSocket);
+    std::string startNewLobby(NoBiggySocket clientSocket, LobbyPrivacyType ClientServerHeaderFlags);
+    std::string generateNewUUID();
+    inline std::unordered_map<std::string, Lobby> lobbiesMap;
+    inline std::unordered_map<std::string, std::unique_ptr<std::mutex>> lobbiesMutexMap;
+}  // namespace Server
+
+// end --- Server.h --- 
+
+
 
 #if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
 
@@ -368,3 +768,6 @@ std::string Server::generateNewUUID() {
 
     return uuid;
 }
+
+// end --- Server.cpp --- 
+
