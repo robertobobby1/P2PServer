@@ -4,7 +4,7 @@
 
 #include "Tests.h"
 #include "NetworkStructs.h"
-#include "Common.h"
+#include "R.h"
 
 namespace Tests {
     inline const int NUM_THREADS = 100;
@@ -73,11 +73,11 @@ std::pair<std::string, bool> Tests::QueuesMutualExclusion() {
 }
 
 void Tests::RandomGetOrSetQueue() {
-    if (Common::randomNumber(1, 10) % 2 == 0) {
-        Common::setThreadSafeToQueue(QueuesMutualExclusion_queue, QueuesMutualExclusion_queueMutex, Common::generateUUID(2));
+    if (R::Utils::randomNumber(1, 10) % 2 == 0) {
+        R::Utils::setThreadSafeToQueue(QueuesMutualExclusion_queue, QueuesMutualExclusion_queueMutex, R::Utils::generateUUID(2));
         QueuesMutualExclusion_setCounter++;
     } else {
-        if (Common::getThreadSafeFromQueue(QueuesMutualExclusion_queue, QueuesMutualExclusion_queueMutex) == "") {
+        if (R::Utils::getThreadSafeFromQueue(QueuesMutualExclusion_queue, QueuesMutualExclusion_queueMutex) == "") {
             QueuesMutualExclusion_getOnEmptyQueue++;
         }
 

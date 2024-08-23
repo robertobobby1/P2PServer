@@ -4,7 +4,7 @@
 
 #include "Tests.h"
 #include "NetworkStructs.h"
-#include "Common.h"
+#include "R.h"
 
 namespace Tests {
     inline const int NUM_THREADS = 100;
@@ -29,7 +29,7 @@ std::pair<std::string, bool> Tests::Peer2MutualExclusion() {
     printf("We will run the test %i times with %i threads\n\n", TEST_TIMES, NUM_THREADS);
     for (int i = 0; i < TEST_TIMES; i++) {
         bool isSuccess = false;
-        std::string uuid = Common::generateUUID(5);
+        std::string uuid = R::Utils::generateUUID(5);
         Lobby lobby;
         HeapMutexWithPeer2Exclusion_map[uuid] = lobby;
         HeapMutexWithPeer2Exclusion_mutexMap[uuid] = std::make_unique<std::mutex>();
@@ -67,9 +67,9 @@ std::pair<std::string, bool> Tests::Peer2MutualExclusion() {
 
 void Tests::UpdatePeer2(std::string uuid) {
     Peer peer2;
-    peer2.socket = Common::randomNumber(1, 10);
-    peer2.family = Common::randomNumber(1, 50);
-    peer2.ipAddress = {Common::randomUintNumber(1, 1000)};
+    peer2.socket = R::Utils::randomNumber(1, 10);
+    peer2.family = R::Utils::randomNumber(1, 50);
+    peer2.ipAddress = {R::Utils::randomUintNumber(1, 1000)};
 
     std::unique_lock<std::mutex> lock(HeapMutexWithPeer2Exclusion_conditionMutex);
     HeapMutexWithPeer2Exclusion_wakeUpCondition.wait(lock);

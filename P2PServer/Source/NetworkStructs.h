@@ -1,32 +1,6 @@
 #pragma once
 
-#include "Platform.h"
-#include <cstdint>
-#include <iostream>
-#include <shared_mutex>
-
-#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
-typedef int NoBiggySocket;
-#    define NoBiggyAcceptSocketError -1
-#elif defined(PLATFORM_WINDOWS)
-typedef SOCKET NoBiggySocket;
-#    define NoBiggyAcceptSocketError INVALID_SOCKET
-#endif
-
-#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
-#    include <sys/socket.h>
-#    include <netinet/in.h>
-#    include <netinet/tcp.h>
-#    include <arpa/inet.h>
-#    include <unistd.h>
-#    include <fcntl.h>
-#elif defined(PLATFORM_WINDOWS)
-#    include <WinSock2.h>
-#    include <ws2tcpip.h>
-#    pragma comment(lib, "winmm.lib")
-#    pragma comment(lib, "WS2_32.lib")
-#    include <Windows.h>
-#endif
+#include "R.h"
 
 // Client-Server data flags
 enum ClientServerHeaderFlags {
@@ -56,7 +30,7 @@ enum ActionType {
 };
 
 struct Peer {
-    NoBiggySocket socket;
+    R::Net::Socket socket;
     // always 4 bytes B1.B2.B3.B4 it is already in network order!
     in_addr ipAddress;
     uint16_t port;

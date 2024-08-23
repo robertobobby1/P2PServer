@@ -4,7 +4,7 @@
 
 #include "Tests.h"
 #include "NetworkStructs.h"
-#include "Common.h"
+#include "R.h"
 
 namespace Tests {
     inline const int NUM_THREADS = 2000;
@@ -80,8 +80,8 @@ std::pair<std::string, bool> Tests::QueuesMutualExclusionWithCondition() {
 }
 
 void Tests::RandomGetOrSetQueueWithCondition() {
-    if (Common::randomNumber(1, 10) % 2 == 0) {
-        Common::setThreadSafeToQueue(QueuesMutualExclusionWithCondition_queue, QueuesMutualExclusionWithCondition_queueMutex, Common::generateUUID(2));
+    if (R::Utils::randomNumber(1, 10) % 2 == 0) {
+        R::Utils::setThreadSafeToQueue(QueuesMutualExclusionWithCondition_queue, QueuesMutualExclusionWithCondition_queueMutex, R::Utils::generateUUID(2));
         QueuesMutualExclusionWithCondition_setCounter++;
         {
             std::unique_lock<std::mutex> lock(QueuesMutualExclusionWithCondition_queueConditionMutex);
@@ -89,7 +89,7 @@ void Tests::RandomGetOrSetQueueWithCondition() {
         }
     } else {
         QueuesMutualExclusionWithCondition_waitingCounter++;
-        if (Common::getThreadSafeFromQueue(QueuesMutualExclusionWithCondition_queue, QueuesMutualExclusionWithCondition_queueMutex, QueuesMutualExclusionWithCondition_queueCondition) != "") {
+        if (R::Utils::getThreadSafeFromQueue(QueuesMutualExclusionWithCondition_queue, QueuesMutualExclusionWithCondition_queueMutex, QueuesMutualExclusionWithCondition_queueCondition) != "") {
             QueuesMutualExclusionWithCondition_getCounter++;
             QueuesMutualExclusionWithCondition_waitingCounter--;
         }

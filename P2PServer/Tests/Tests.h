@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdio>
+#include <iostream>
+#include <functional>
+
 namespace Tests {
 
     void run();

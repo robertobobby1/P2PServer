@@ -1,8 +1,4 @@
-#include <cstdio>
-#include <functional>
-
 #include "Tests.h"
-#include "Server.h"
 
 const std::function<std::pair<std::string, bool>()> Tests_functionArray[] = {
     Tests::Peer2MutualExclusion,

@@ -1,4 +1,4 @@
-outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
+outputdir = "%{cfg.buildcfg}-%{cfg.system}"
 
 workspace "Server"
 	configurations
@@ -8,16 +8,7 @@ workspace "Server"
 		"Dist"
 	}
 
-	filter "system:macosx"
-		architecture "universal"
-
-	filter "system:windows"
-		architecture "x86_64"
-
-	filter "system:linux"
-		architecture "x86_64"
-
-	project "Server"
+	project "P2PServer"
 		kind "ConsoleApp"
 		language "C++"
 		cppdialect "C++20"
@@ -27,23 +18,13 @@ workspace "Server"
 
 		files
 		{
-			"%{wks.location}/NoBiggyServer/Source/**.h",
-			"%{wks.location}/NoBiggyServer/Source/**.cpp",
-			"%{wks.location}/NoBiggyServer/Tests/**.h",
-			"%{wks.location}/NoBiggyServer/Tests/**.cpp",
+			"%{wks.location}/P2PServer/Source/**.h",
+			"%{wks.location}/P2PServer/Source/**.cpp",
+			"%{wks.location}/P2PServer/Tests/**.h",
+			"%{wks.location}/P2PServer/Tests/**.cpp",
 		}
 		includedirs
 		{
-			"%{wks.location}/NoBiggyServer/Source",
-			"%{wks.location}/NoBiggyServer/Tests",
+			"%{wks.location}/P2PServer/Source",
+			"%{wks.location}/P2PServer/Tests",
 		}
-
-		filter "configurations:Debug"
-			defines "RC_DEBUG"
-			runtime "Debug"
-			symbols "on"
-
-		filter "configurations:Release"
-			defines "RC_RELEASE"
-			runtime "Release"
-			optimize "on"
