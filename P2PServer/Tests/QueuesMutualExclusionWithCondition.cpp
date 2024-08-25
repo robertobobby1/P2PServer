@@ -34,7 +34,7 @@ std::pair<std::string, bool> Tests::QueuesMutualExclusionWithCondition() {
     int successFullIterations = 0;
     bool isSuccess = false;
 
-    printf("We will run the test %i times with %i threads\n\n", TEST_TIMES, NUM_THREADS);
+    RLog("We will run the test %i times with %i threads\n\n", TEST_TIMES, NUM_THREADS);
     for (int i = 0; i < TEST_TIMES; i++) {
         for (int i = 0; i < NUM_THREADS; i++) {
             QueuesMutualExclusionWithCondition_threads.push_back(std::thread(RandomGetOrSetQueueWithCondition));

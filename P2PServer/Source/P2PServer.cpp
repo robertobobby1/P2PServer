@@ -53,7 +53,7 @@ void P2PServer::run() {
                     break;
                 }
 
-                printf("[Logic Server] New connection!\n");
+                RLog("[Logic Server] New connection!\n");
                 addFDToSet(acceptSocket);
                 socketToAttend = acceptSocket;
             } else {
@@ -65,7 +65,7 @@ void P2PServer::run() {
         }
     }
 
-    printf("[Logic Server] Program terminated normally!");
+    RLog("[Logic Server] Program terminated normally!");
     std::terminate();
 }
 
@@ -91,14 +91,18 @@ void P2PServer::worker() {
         if (buffer.size > 0) {
             handleRequest(buffer, clientSocket);
         } else {
-            // clean up lobby if necessary
-            auto uuid = findUUIDbyClientSocket(clientSocket);
-            if (uuid != "") {
-                cleanUpLobbyByUUID(uuid);
-            } else {
-                R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, clientSocket);
-            }
+            cleanUpLobbyBySocket(clientSocket);
         }
+    }
+}
+
+void P2PServer::cleanUpLobbyBySocket(R::Net::Socket clientSocket) {
+    // clean up lobby if necessary
+    auto uuid = findUUIDbyClientSocket(clientSocket);
+    if (uuid != "") {
+        cleanUpLobbyByUUID(uuid);
+    } else {
+        R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, clientSocket);
     }
 }
 
@@ -111,9 +115,11 @@ void P2PServer::cleanUpLobbyByUUID(std::string &uuid) {
     if (lobbiesMap[uuid].IsLobbyComplete(lobbyMutex)) {
         auto peer2 = lobbiesMap[uuid].GetPeer2(lobbyMutex);
         R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, peer2.socket);
+        // TODO notify to peer
     }
 
     R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, lobbiesMap[uuid].peer1.socket);
+    // TODO notify to peer
     lobbiesMap.erase(uuid);
     lobbiesMutexMap.erase(uuid);
 }
@@ -133,34 +139,36 @@ std::string P2PServer::findUUIDbyClientSocket(R::Net::Socket clientSocket) {
  * 24-29 BYTES should be received including:
  *  - 23 Bytes of security header 0-22
  *  - 1 Byte for header protocol data, includes ClientServerHeaderFlags and if its new or to connect lobby 23
- *  - 5 Optional bytes that are the game hash 24-29
+ *  - 5 Optional bytes that are the game hash 24-29 isValidAuthedRequest
  */
 void P2PServer::handleRequest(R::Buffer buffer, R::Net::Socket clientSocket) {
-    if (!R::Utils::isInRange(buffer.size, 24, 29) || !isValidSecurityHeader(buffer.ini)) {
-        printf("[Logic Server] Bad protocol!\n");
-        printf("[Logic Server] received header: %s\n", buffer.ini);
-        printf("[Logic Server] security header: %s\n", SECURITY_HEADER);
+    if (!Rp2p::isValidAuthedRequest(buffer)) {
+        RLog("[Logic Server] Bad protocol!\n");
+        cleanUpLobbyBySocket(clientSocket);
         R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, clientSocket);
         return;
     }
 
     std::string uuid = "";
-    uint8_t dataHeaderFlags = buffer[23];
-    LobbyPrivacyType lobbyPrivacyType = getLobbyPrivacyTypeFromHeaderByte(dataHeaderFlags);
-    ActionType action = getActionTypeFromHeaderByte(dataHeaderFlags);
+    uint8_t dataHeaderFlags = Rp2p::getProtocolHeader(buffer);
+    Rp2p::LobbyPrivacyType lobbyPrivacyType = Rp2p::getLobbyPrivacyTypeFromHeaderByte(dataHeaderFlags);
+    Rp2p::ClientActionType action = Rp2p::getClientActionTypeFromHeaderByte(dataHeaderFlags);
 
-    if (action == ActionType::Disconnect || action == ActionType::PeerConnectSuccess) {
+    if (action == Rp2p::ClientActionType::PeerConnectSuccess) {
         R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, clientSocket);
+        return;
+    } else if (action == Rp2p::ClientActionType::Disconnect) {
+        cleanUpLobbyBySocket(clientSocket);
         return;
     }
 
     // public lobby - connect/create
-    if (lobbyPrivacyType == LobbyPrivacyType::Public) {
+    if (lobbyPrivacyType == Rp2p::LobbyPrivacyType::Public) {
         uuid = findRandomMatch(clientSocket);
-    } else if (action == ActionType::Create) {
+    } else if (action == Rp2p::ClientActionType::Create) {
         // private lobby - create action
-        uuid = startNewLobby(clientSocket, LobbyPrivacyType::Private);
-    } else if (action == ActionType::Connect) {
+        uuid = startNewLobby(clientSocket, Rp2p::LobbyPrivacyType::Private);
+    } else if (action == Rp2p::ClientActionType::Connect) {
         // private lobby - connect action
         uuid = std::string(buffer[24], (size_t)5);
         auto lobby = lobbiesMap.find(uuid);
@@ -188,17 +196,6 @@ void P2PServer::connectPeersIfNecessary(std::string &uuid) {
         return;
     }
 
-    auto bufferForPeer1 = R::Buffer(SECURITY_HEADER_LENGTH + 1 + 4 + 2 + 4);
-
-    uint8_t headerFlags = 0;
-    R::Utils::setFlag(headerFlags, ServerClientHeaderFlags::ServerClientHeaderFlags_Action);
-
-    bufferForPeer1.write(SECURITY_HEADER, SECURITY_HEADER_LENGTH);
-    bufferForPeer1.write(headerFlags);
-
-    // both same header
-    auto bufferForPeer2 = bufferForPeer1;
-
     Peer peer2 = lobby.GetPeer2(lobbiesMutexMap[uuid].get());
     uint16_t delayPeer2, delayPeer1 = 0;
     if (peer2.averageRTT > lobby.peer1.averageRTT) {
@@ -207,21 +204,8 @@ void P2PServer::connectPeersIfNecessary(std::string &uuid) {
         delayPeer1 = lobby.peer1.averageRTT - peer2.averageRTT;
     }
 
-    // TODO htonl?
-    unsigned int ipAddressPeer1 = lobby.peer1.ipAddress.s_addr;
-    uint16_t portPeer1 = lobby.peer1.port;
-
-    bufferForPeer1.write(ipAddressPeer1);
-    bufferForPeer1.write(portPeer1);
-    bufferForPeer1.write(delayPeer1);
-
-    // peer2
-    unsigned int ipAddressPeer2 = peer2.ipAddress.s_addr;
-    uint16_t portPeer2 = peer2.port;
-
-    bufferForPeer2.write(ipAddressPeer2);
-    bufferForPeer2.write(portPeer2);
-    bufferForPeer2.write(delayPeer2);
+    auto bufferForPeer1 = Rp2p::createServerConnectBuffer(lobby.peer1.ipAddress.s_addr, lobby.peer1.port, delayPeer1);
+    auto bufferForPeer2 = Rp2p::createServerConnectBuffer(peer2.ipAddress.s_addr, peer2.port, delayPeer2);
 
     auto peer1Response = server->sendMessage(lobby.peer1.socket, bufferForPeer1);
     auto peer2Response = server->sendMessage(peer2.socket, bufferForPeer2);
@@ -232,62 +216,21 @@ void P2PServer::connectPeersIfNecessary(std::string &uuid) {
 }
 
 void P2PServer::sendUuidToClient(R::Net::Socket clientSocket, std::string &uuid) {
-    auto buffer = R::Buffer(SECURITY_HEADER_LENGTH + 1 + uuid.size());
-    // action 0 is send uuid
-    uint8_t headerFlags = 0;
-
-    buffer.write(SECURITY_HEADER, SECURITY_HEADER_LENGTH);
-    buffer.write(headerFlags);
-    buffer.write(uuid.c_str(), uuid.size());
+    auto buffer = Rp2p::createServerSendUUIDBuffer(uuid);
 
     auto sendResponse = server->sendMessage(clientSocket, buffer);
-
     if (sendResponse == -1) {
         R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, clientSocket);
     }
 }
 
-LobbyPrivacyType P2PServer::getLobbyPrivacyTypeFromHeaderByte(uint8_t headerByte) {
-    if (R::Utils::isFlagSet(headerByte, ClientServerHeaderFlags::ClientServerHeaderFlags_Public)) {
-        return LobbyPrivacyType::Public;
-    }
-    return LobbyPrivacyType::Private;
-}
-
-ActionType P2PServer::getActionTypeFromHeaderByte(uint8_t headerByte) {
-    bool isBit1Set = R::Utils::isFlagSet(headerByte, ClientServerHeaderFlags::ClientServerHeaderFlags_Bit1);
-    bool isBit2Set = R::Utils::isFlagSet(headerByte, ClientServerHeaderFlags::ClientServerHeaderFlags_Bit2);
-
-    if (isBit1Set) {
-        if (isBit2Set) {
-            // 11 = connect
-            return ActionType::Connect;
-        } else {
-            // 10 = createLobby
-            return ActionType::Create;
-        }
-    } else {
-        if (isBit2Set) {
-            // 01 = disconnect
-            return ActionType::Disconnect;
-        } else {
-            // 00 = peersConnectSuccess
-            return ActionType::PeerConnectSuccess;
-        }
-    }
-}
-
-bool P2PServer::isValidSecurityHeader(const char *buffer) {
-    return strncmp(buffer, SECURITY_HEADER, SECURITY_HEADER_LENGTH) == 0;
-}
-
-std::string P2PServer::startNewLobby(R::Net::Socket clientSocket, LobbyPrivacyType lobbyPrivacyType) {
+std::string P2PServer::startNewLobby(R::Net::Socket clientSocket, Rp2p::LobbyPrivacyType lobbyPrivacyType) {
     Lobby lobby;
     lobby.ID_Lobby = generateNewUUID();
     lobby.peer1 = NetworkUtils::getPeerInfo(clientSocket);
     lobby.lobbyPrivacyType = lobbyPrivacyType;
 
-    if (lobbyPrivacyType == LobbyPrivacyType::Public) {
+    if (lobbyPrivacyType == Rp2p::LobbyPrivacyType::Public) {
         R::Utils::setThreadSafeToQueue(matchMakingQueue, matchMakingQueueMutex, lobby.ID_Lobby);
     }
 
@@ -299,7 +242,7 @@ std::string P2PServer::startNewLobby(R::Net::Socket clientSocket, LobbyPrivacyTy
 std::string P2PServer::findRandomMatch(R::Net::Socket clientSocket) {
     std::string uuid = R::Utils::getThreadSafeFromQueue(matchMakingQueue, matchMakingQueueMutex);
     if (uuid.empty()) {
-        return startNewLobby(clientSocket, LobbyPrivacyType::Public);
+        return startNewLobby(clientSocket, Rp2p::LobbyPrivacyType::Public);
     }
 
     lobbiesMap[uuid].SetPeer2IfPossible(NetworkUtils::getPeerInfo(clientSocket), lobbiesMutexMap[uuid].get());

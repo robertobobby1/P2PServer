@@ -30,7 +30,7 @@ std::pair<std::string, bool> Tests::QueuesMutualExclusion() {
     int successFullIterations = 0;
     bool isSuccess = false;
 
-    printf("We will run the test %i times with %i threads\n\n", TEST_TIMES, NUM_THREADS);
+    RLog("We will run the test %i times with %i threads\n\n", TEST_TIMES, NUM_THREADS);
     for (int i = 0; i < TEST_TIMES; i++) {
         for (int i = 0; i < NUM_THREADS; i++) {
             QueuesMutualExclusion_threads.push_back(std::thread(RandomGetOrSetQueue));
@@ -58,7 +58,7 @@ std::pair<std::string, bool> Tests::QueuesMutualExclusion() {
         std::cout << "The set counter is " << QueuesMutualExclusion_setCounter << "\n";
         std::cout << "The empty queue counter is " << QueuesMutualExclusion_getOnEmptyQueue << "\n";
         std::cout << "The queue's length is " << QueuesMutualExclusion_queue.size() << "\n";
-        printf("[iteration-%i] The test was a %s\n\n", i + 1, (isSuccess ? "success" : "failure"));
+        RLog("[iteration-%i] The test was a %s\n\n", i + 1, (isSuccess ? "success" : "failure"));
 
         QueuesMutualExclusion_getCounter = 0;
         QueuesMutualExclusion_setCounter = 0;

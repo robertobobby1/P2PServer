@@ -5,6 +5,10 @@
 #include <execinfo.h>
 #include <unistd.h>
 
+#include <iostream>
+#include <stdio.h>
+#include <string.h>
+
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
 #    pragma message("WIN32 || _WIN32 || __WIN32__ || __NT__")
 #    ifndef PLATFORM_WINDOWS
@@ -56,25 +60,15 @@
 #    pragma message("This is an unknown OS")
 #endif
 
-#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
-#    include <sys/socket.h>
-#    include <netinet/in.h>
-#    include <netinet/tcp.h>
-#    include <arpa/inet.h>
-#    include <unistd.h>
-#    include <fcntl.h>
-#    include <netdb.h>
-#elif defined(PLATFORM_WINDOWS)
-#    include <WinSock2.h>
-#    include <ws2tcpip.h>
-#    pragma comment(lib, "winmm.lib")
-#    pragma comment(lib, "WS2_32.lib")
-#    include <Windows.h>
-#endif
-
-#include <iostream>
 #include <stdio.h>
-#include <string.h>
+
+#ifdef DISABLE_LOGGING
+#    define RLog(f_, ...) ()
+
+#else
+#    define RLog(f_, ...) printf((f_), ##__VA_ARGS__)
+
+#endif
 
 namespace R {
     class Buffer {
@@ -140,21 +134,61 @@ namespace R {
             return *this;
         }
 
+        template <typename T>
+        bool inBoundOffset(std::size_t const offset) {
+            if (offset + sizeof(T) >= maxSize || offset < 0) {
+                RLog("[Buffer] Can't access out of bounds");
+                return false;
+            }
+            return true;
+        }
+
         // -- Methods
         template <typename T>
         T read(std::size_t const offset) {
-            if (offset + sizeof(T) >= maxSize || offset < 0)
-                printf("[Buffer] Can't read out of bounds");
+            if (!inBoundOffset<T>(offset))
+                return 0;
 
             return static_cast<T>(ini[offset]);
         }
 
-        // expects real values such as uint8_t....
+        template <>
+        uint16_t read<uint16_t>(std::size_t const offset) {
+            if (!inBoundOffset<uint16_t>(offset))
+                return 0;
+
+            auto value = static_cast<uint16_t>(ini[offset]);
+            return ntohs(value);
+        }
+
+        template <>
+        uint32_t read<uint32_t>(std::size_t const offset) {
+            if (!inBoundOffset<uint32_t>(offset))
+                return 0;
+
+            auto value = static_cast<uint32_t>(ini[offset]);
+            return ntohs(value);
+        }
+
+        // expects real values such as uint8_t and not pointers
         template <typename T>
         void write(T const value) {
             this->write(&value, sizeof(T));
         }
 
+        template <>
+        void write<uint16_t>(uint16_t const value) {
+            uint16_t invertedBytes = htons(value);
+            this->write(&invertedBytes, sizeof(uint16_t));
+        }
+
+        template <>
+        void write<uint32_t>(uint32_t const value) {
+            uint32_t invertedBytes = htonl(value);
+            this->write(&invertedBytes, sizeof(uint32_t));
+        }
+
+        // expects pointers to values
         template <typename T>
         void write(T const value, int appendLength) {
             increaseBufferSizeIfNecessary(appendLength);
@@ -261,7 +295,7 @@ namespace R::Utils {
         size = backtrace(array, 10);
 
         // print out all the frames to stderr
-        fprintf(stderr, "Error: signal %d:\n", sig);
+        RLog("[Expception Handler]: signal %d:\n", sig);
         backtrace_symbols_fd(array, size, STDERR_FILENO);
         exit(1);
     }
@@ -274,21 +308,38 @@ namespace R::Utils {
         unsigned char *buf = (unsigned char *)buffer.ini;
         int i, j;
         for (i = 0; i < buffer.size; i += 16) {
-            printf("%06x: ", i);
+            RLog("%06x: ", i);
             for (j = 0; j < 16; j++)
                 if (i + j < buffer.size)
-                    printf("%02x ", buf[i + j]);
+                    RLog("%02x ", buf[i + j]);
                 else
-                    printf("   ");
-            printf(" ");
+                    RLog("   ");
+            RLog(" ");
             for (j = 0; j < 16; j++)
                 if (i + j < buffer.size)
-                    printf("%c", isprint(buf[i + j]) ? buf[i + j] : '.');
-            printf("\n");
+                    RLog("%c", isprint(buf[i + j]) ? buf[i + j] : '.');
+            RLog("\n");
         }
     }
 }  // namespace R::Utils
+
 #include <iostream>
+
+#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
+#    include <sys/socket.h>
+#    include <netinet/in.h>
+#    include <netinet/tcp.h>
+#    include <arpa/inet.h>
+#    include <unistd.h>
+#    include <fcntl.h>
+#    include <netdb.h>
+#elif defined(PLATFORM_WINDOWS)
+#    include <WinSock2.h>
+#    include <ws2tcpip.h>
+#    pragma comment(lib, "winmm.lib")
+#    pragma comment(lib, "WS2_32.lib")
+#    include <Windows.h>
+#endif
 
 namespace R::Net {
 
@@ -333,7 +384,7 @@ namespace R::Net {
     }
 
     inline void onError(Socket socket, bool closeSocket, const char *errorMessage) {
-        printf("%s - errno %i\n", errorMessage, errno);
+        RLog("%s - errno %i\n", errorMessage, errno);
         if (closeSocket) {
             close(socket);
         }
@@ -354,7 +405,7 @@ namespace R::Net {
         if (closeSocket) {
             closesocket(socket);
         }
-        printf("%s --- winsock2 error code is: %i\n", errorMessage, WSAGetLastError());
+        RLog("%s --- winsock2 error code is: %i\n", errorMessage, WSAGetLastError());
         WSACleanup();
     }
 #endif
@@ -373,7 +424,6 @@ namespace R::Net {
         int bufferSize = read(socket, stackBuffer, 255);
         if (bufferSize < 0) {
             onError(socket, false, message);
-            printf("Closed socket: %i\n", socket);
         } else {
             buffer.write(stackBuffer, bufferSize);
         }
@@ -431,7 +481,7 @@ namespace R::Net {
                 return false;
             }
 
-            printf("[Client] Connected to hostname %s and port %i\n", hostname, port);
+            RLog("[Client] Connected to hostname %s and port %i\n", hostname, port);
             isRunning = true;
             return true;
         }
@@ -484,7 +534,7 @@ namespace R::Net {
                 return false;
             }
 
-            printf("[Client] Connected to hostname %s and port %i\n", hostname, port);
+            RLog("[Client] Connected to hostname %s and port %i\n", hostname, port);
             isRunning = true;
             return true;
         }
@@ -541,7 +591,7 @@ namespace R::Net {
                 return false;
             }
 
-            printf("[Server] Started listening in port %i\n", port);
+            RLog("[Server] Started listening in port %i\n", port);
             isRunning = true;
             return true;
         }
@@ -576,7 +626,7 @@ namespace R::Net {
             if (checkForErrors(ioctlsocket(_socket, FIONBIO, &blocking_mode), -1, "[Server] Error while setting the blocking mode", true))
                 return false;
 
-            printf("[Server] Started listening in port %i\n", port);
+            RLog("[Server] Started listening in port %i\n", port);
             isRunning = true;
             return true;
         }
@@ -589,7 +639,7 @@ namespace R::Net {
 
         inline Socket acceptNewConnection(bool checkErrors = true) {
             if (!isRunning) {
-                printf("[Server] Cannot accept connections if server is not running");
+                RLog("[Server] Cannot accept connections if server is not running");
                 return -1;
             }
 
@@ -610,3 +660,188 @@ namespace R::Net {
     };
 
 }  // namespace R::Net
+
+#include <cstdint>
+
+namespace R::Net::P2P {
+    inline const int SECURITY_HEADER_LENGTH = 23;
+    inline const char *SECURITY_HEADER = "0sdFGeVi3ItN1qwsHp3mcDF";
+    inline const int UUID_LENGTH = 5;
+
+    // Client-Server data flags
+    enum ClientServerHeaderFlags {
+        // Type of the lobby public/private
+        ClientServerHeaderFlags_Public = 1 << 5,  // 00100000
+        // Type of the action we are trying create/connect/disconnect/peersConnectSuccess
+        ClientServerHeaderFlags_Bit1 = 1 << 7,  // 10000000
+        ClientServerHeaderFlags_Bit2 = 1 << 6,  // 01000000
+    };
+
+    // Server-Client data flags
+    enum ServerClientHeaderFlags {
+        // action type send uuid/connect
+        ServerClientHeaderFlags_Action = 1 << 7,  // 10000000
+    };
+
+    enum LobbyPrivacyType {
+        Private,
+        Public
+    };
+
+    enum ClientActionType {
+        Create,
+        Connect,
+        Disconnect,
+        PeerConnectSuccess
+    };
+
+    enum ServerActionType {
+        Connect,
+        SendUUID,
+    };
+
+    inline bool isValidAuthedRequest(Buffer &buffer) {
+        return Utils::isInRange(buffer.size, 24, 29) && strncmp(buffer.ini, SECURITY_HEADER, SECURITY_HEADER_LENGTH) == 0;
+    }
+
+    inline Buffer createSecuredBuffer() {
+        auto buffer = Buffer(SECURITY_HEADER_LENGTH);
+
+        buffer.write(SECURITY_HEADER, SECURITY_HEADER_LENGTH);
+
+        return buffer;
+    }
+
+    inline uint8_t getProtocolHeader(Buffer &buffer) {
+        return buffer.ini[SECURITY_HEADER_LENGTH];
+    }
+
+    // start Client section
+
+    inline uint8_t createClientProtocolHeader(LobbyPrivacyType lobbyType, ClientActionType clientActionType) {
+        uint8_t headerFlags = 0;
+        if (lobbyType == LobbyPrivacyType::Public) {
+            R::Utils::setFlag(headerFlags, ClientServerHeaderFlags_Public);
+        }
+        switch (clientActionType) {
+            case ClientActionType::Connect:  // 11
+                R::Utils::setFlag(headerFlags, ClientServerHeaderFlags_Bit1);
+                R::Utils::setFlag(headerFlags, ClientServerHeaderFlags_Bit2);
+                break;
+            case ClientActionType::Create:  // 10
+                R::Utils::setFlag(headerFlags, ClientServerHeaderFlags_Bit1);
+                break;
+            case ClientActionType::Disconnect:  // 01
+                R::Utils::setFlag(headerFlags, ClientServerHeaderFlags_Bit2);
+                break;
+            case ClientActionType::PeerConnectSuccess:  // 00
+                break;
+        }
+
+        return headerFlags;
+    }
+
+    inline Buffer createClientBuffer(LobbyPrivacyType lobbyType, ClientActionType action) {
+        auto buffer = createSecuredBuffer();
+        auto headerFlags = createClientProtocolHeader(lobbyType, action);
+
+        buffer.write(headerFlags);
+
+        return buffer;
+    }
+
+    inline Buffer createClientPeersConnectSuccessBuffer() {
+        return createClientBuffer(LobbyPrivacyType::Private, ClientActionType::PeerConnectSuccess);
+    }
+
+    inline Buffer createClientDisconnectBuffer() {
+        return createClientBuffer(LobbyPrivacyType::Private, ClientActionType::Disconnect);
+    }
+
+    inline Buffer createClientCreateLobbyBuffer(LobbyPrivacyType privacyType) {
+        return createClientBuffer(privacyType, ClientActionType::Create);
+    }
+
+    inline Buffer createClientPublicConnectBuffer() {
+        return createClientBuffer(LobbyPrivacyType::Public, ClientActionType::Connect);
+    }
+
+    inline Buffer createClientPrivateConnectBuffer(std::string &uuid) {
+        auto buffer = createClientBuffer(LobbyPrivacyType::Private, ClientActionType::Connect);
+
+        buffer.write(uuid.c_str(), UUID_LENGTH);
+
+        return buffer;
+    }
+
+    inline ClientActionType getClientActionTypeFromHeaderByte(uint8_t headerByte) {
+        bool isBit1Set = R::Utils::isFlagSet(headerByte, ClientServerHeaderFlags::ClientServerHeaderFlags_Bit1);
+        bool isBit2Set = R::Utils::isFlagSet(headerByte, ClientServerHeaderFlags::ClientServerHeaderFlags_Bit2);
+
+        if (isBit1Set) {
+            if (isBit2Set) {
+                return ClientActionType::Connect;  // 11 = connect
+            } else {
+                return ClientActionType::Create;  // 10 = createLobby
+            }
+        } else {
+            if (isBit2Set) {
+                return ClientActionType::Disconnect;  // 01 = disconnect
+            } else {
+                return ClientActionType::PeerConnectSuccess;  // 00 = peersConnectSuccess
+            }
+        }
+    }
+
+    inline LobbyPrivacyType getLobbyPrivacyTypeFromHeaderByte(uint8_t headerByte) {
+        if (R::Utils::isFlagSet(headerByte, ClientServerHeaderFlags::ClientServerHeaderFlags_Public)) {
+            return LobbyPrivacyType::Public;
+        }
+        return LobbyPrivacyType::Private;
+    }
+
+    // end Client secion
+
+    // start Server secion
+
+    inline uint8_t createServerProtocolHeader(ServerActionType serverActionType) {
+        uint8_t headerFlags = 0;
+        if (serverActionType == ServerActionType::SendUUID) {
+            R::Utils::setFlag(headerFlags, ClientServerHeaderFlags_Bit1);  // 1
+        }
+
+        return headerFlags;
+    }
+
+    inline Buffer createServerConnectBuffer(uint32_t ipAddress, uint16_t port, uint32_t delay) {
+        auto buffer = createSecuredBuffer();
+        auto headerFlags = createServerProtocolHeader(ServerActionType::Connect);
+
+        buffer.write(headerFlags);
+        buffer.write(ipAddress);
+        buffer.write(port);
+        buffer.write(delay);
+
+        return buffer;
+    }
+
+    inline Buffer createServerSendUUIDBuffer(std::string &uuid) {
+        auto buffer = createSecuredBuffer();
+        auto headerFlags = createServerProtocolHeader(ServerActionType::Connect);
+
+        buffer.write(headerFlags);
+        buffer.write(uuid.c_str(), UUID_LENGTH);
+
+        return buffer;
+    }
+
+    inline ServerActionType getServerActionTypeFromHeaderByte(uint8_t headerByte) {
+        if (R::Utils::isFlagSet(headerByte, ServerClientHeaderFlags::ServerClientHeaderFlags_Action)) {
+            return ServerActionType::SendUUID;
+        }
+        return ServerActionType::Connect;
+    }
+
+    // end Server secion
+
+}  // namespace R::Net::P2P

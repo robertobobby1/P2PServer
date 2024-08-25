@@ -26,7 +26,7 @@ namespace Tests {
 std::pair<std::string, bool> Tests::Peer2MutualExclusion() {
     int successFullIterations = 0;
 
-    printf("We will run the test %i times with %i threads\n\n", TEST_TIMES, NUM_THREADS);
+    RLog("We will run the test %i times with %i threads\n\n", TEST_TIMES, NUM_THREADS);
     for (int i = 0; i < TEST_TIMES; i++) {
         bool isSuccess = false;
         std::string uuid = R::Utils::generateUUID(5);
