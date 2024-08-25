@@ -188,17 +188,16 @@ void P2PServer::connectPeersIfNecessary(std::string &uuid) {
         return;
     }
 
-    int bufferLength = SECURITY_HEADER_LENGTH + 1 + 4 + 2 + 4;
-    std::unique_ptr<char[]> bufferForPeer1(new char[bufferLength]);
-    std::unique_ptr<char[]> bufferForPeer2(new char[bufferLength]);
+    auto bufferForPeer1 = R::Buffer(SECURITY_HEADER_LENGTH + 1 + 4 + 2 + 4);
 
     uint8_t headerFlags = 0;
     R::Utils::setFlag(headerFlags, ServerClientHeaderFlags::ServerClientHeaderFlags_Action);
 
-    memcpy(bufferForPeer1.get(), SECURITY_HEADER, SECURITY_HEADER_LENGTH);
-    memcpy(bufferForPeer1.get() + SECURITY_HEADER_LENGTH, &headerFlags, 1);
+    bufferForPeer1.write(SECURITY_HEADER, SECURITY_HEADER_LENGTH);
+    bufferForPeer1.write(headerFlags);
+
     // both same header
-    memcpy(bufferForPeer2.get(), bufferForPeer1.get(), SECURITY_HEADER_LENGTH + 1);
+    auto bufferForPeer2 = bufferForPeer1;
 
     Peer peer2 = lobby.GetPeer2(lobbiesMutexMap[uuid].get());
     uint16_t delayPeer2, delayPeer1 = 0;
@@ -208,24 +207,24 @@ void P2PServer::connectPeersIfNecessary(std::string &uuid) {
         delayPeer1 = lobby.peer1.averageRTT - peer2.averageRTT;
     }
 
-    // peer1
     // TODO htonl?
     unsigned int ipAddressPeer1 = lobby.peer1.ipAddress.s_addr;
     uint16_t portPeer1 = lobby.peer1.port;
 
-    memcpy(bufferForPeer1.get() + SECURITY_HEADER_LENGTH + 1, &ipAddressPeer1, 4);
-    memcpy(bufferForPeer1.get() + SECURITY_HEADER_LENGTH + 1 + 4, &portPeer1, 2);
-    memcpy(bufferForPeer1.get() + SECURITY_HEADER_LENGTH + 1 + 4 + 2, &delayPeer1, 4);
+    bufferForPeer1.write(ipAddressPeer1);
+    bufferForPeer1.write(portPeer1);
+    bufferForPeer1.write(delayPeer1);
 
     // peer2
     unsigned int ipAddressPeer2 = peer2.ipAddress.s_addr;
     uint16_t portPeer2 = peer2.port;
-    memcpy(bufferForPeer2.get() + SECURITY_HEADER_LENGTH + 1, &ipAddressPeer2, 4);
-    memcpy(bufferForPeer2.get() + SECURITY_HEADER_LENGTH + 1 + 4, &portPeer2, 2);
-    memcpy(bufferForPeer2.get() + SECURITY_HEADER_LENGTH + 1 + 4 + 2, &delayPeer2, 4);
 
-    auto peer1Response = send(lobby.peer1.socket, bufferForPeer1.get(), bufferLength, 0);
-    auto peer2Response = send(peer2.socket, bufferForPeer2.get(), bufferLength, 0);
+    bufferForPeer2.write(ipAddressPeer2);
+    bufferForPeer2.write(portPeer2);
+    bufferForPeer2.write(delayPeer2);
+
+    auto peer1Response = server->sendMessage(lobby.peer1.socket, bufferForPeer1);
+    auto peer2Response = server->sendMessage(peer2.socket, bufferForPeer2);
 
     if (peer1Response == -1 || peer2Response == -1) {
         lobby.peerConnectionSendFailure = true;
