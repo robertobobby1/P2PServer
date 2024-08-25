@@ -17,9 +17,8 @@ namespace P2PServer {
     inline const int MAX_workers = 10;
     inline const int PORT = 3000;
     inline const int BACKLOG = 10;
-    inline const long TIMEOUT = 1;  // in seconds
     inline const int SECURITY_HEADER_LENGTH = 23;
-    inline const char *SECURITY_HEADER = "0sdFGeVi3ItN1qwsHp3mcD";
+    inline const char *SECURITY_HEADER = "0sdFGeVi3ItN1qwsHp3mcDF";
 
     void run();
     void worker();
@@ -51,6 +50,8 @@ namespace P2PServer {
     std::string findRandomMatch(R::Net::Socket clientSocket);
     std::string startNewLobby(R::Net::Socket clientSocket, LobbyPrivacyType ClientServerHeaderFlags);
     std::string generateNewUUID();
+    std::string findUUIDbyClientSocket(R::Net::Socket clientSocket);
+    void cleanUpLobbyByUUID(std::string &uuid);
     inline std::unordered_map<std::string, Lobby> lobbiesMap;
     inline std::unordered_map<std::string, std::shared_ptr<std::mutex>> lobbiesMutexMap;
 }  // namespace P2PServer

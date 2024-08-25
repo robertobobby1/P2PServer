@@ -1,10 +1,181 @@
 #pragma once
 
-
 #include <cstdint>
 #include <queue>
 #include <execinfo.h>
 #include <unistd.h>
+
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+#    pragma message("WIN32 || _WIN32 || __WIN32__ || __NT__")
+#    ifndef PLATFORM_WINDOWS
+#        define PLATFORM_WINDOWS
+#    endif
+#    ifdef _WIN64
+#    endif
+
+#elif __APPLE__
+#    include <TargetConditionals.h>
+#    if TARGET_IPHONE_SIMULATOR
+#    elif TARGET_OS_MACCATALYST
+#    elif TARGET_OS_IPHONE
+#    elif TARGET_OS_MAC
+#        ifndef PLATFORM_MACOS
+#            define PLATFORM_MACOS
+#        endif
+#    else
+#        error "Unknown Apple platform"
+#    endif
+
+#elif __ANDROID__
+#    ifndef PLATFORM_LINUX
+#        define PLATFORM_LINUX
+#    endif
+#elif __linux__
+#    ifndef PLATFORM_LINUX
+#        define PLATFORM_LINUX
+#    endif
+#elif __unix__
+#    ifndef PLATFORM_LINUX
+#        define PLATFORM_LINUX
+#    endif
+#elif defined(_POSIX_VERSION)
+#    ifndef PLATFORM_LINUX
+#        define PLATFORM_LINUX
+#    endif
+#else
+#    error("Unknown compiler")
+#endif
+
+#ifdef PLATFORM_LINUX
+#    pragma message("This is linux")
+#elif defined(PLATFORM_MACOS)
+#    pragma message("This is MacOS")
+#elif defined(PLATFORM_WINDOWS)
+#    pragma message("This is Windows")
+#else
+#    pragma message("This is an unknown OS")
+#endif
+
+#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
+#    include <sys/socket.h>
+#    include <netinet/in.h>
+#    include <netinet/tcp.h>
+#    include <arpa/inet.h>
+#    include <unistd.h>
+#    include <fcntl.h>
+#    include <netdb.h>
+#elif defined(PLATFORM_WINDOWS)
+#    include <WinSock2.h>
+#    include <ws2tcpip.h>
+#    pragma comment(lib, "winmm.lib")
+#    pragma comment(lib, "WS2_32.lib")
+#    include <Windows.h>
+#endif
+
+#include <iostream>
+#include <stdio.h>
+#include <string.h>
+
+namespace R {
+    class Buffer {
+       public:
+        char *ini;
+        size_t size = 0;
+        size_t maxSize = 0;
+
+        // destructor
+        ~Buffer() {
+            delete[] ini;
+        }
+
+        // Constructor
+        explicit Buffer(int n)
+            : ini(new char[n]{0}), maxSize(n) {}
+
+        // Copy Constructor
+        Buffer(const Buffer &otherBuff) {
+            ini = new char[otherBuff.maxSize];
+            size = otherBuff.size;
+            maxSize = otherBuff.maxSize;
+
+            memcpy(ini, otherBuff.ini, otherBuff.size);
+        }
+
+        uint8_t operator[](int position) {
+            return ini[position];
+        }
+
+        // Copy assignment
+        Buffer &operator=(const Buffer &otherBuff) {
+            if (this == &otherBuff)
+                return *this;
+
+            delete[] ini;
+
+            ini = new char[otherBuff.maxSize];
+            size = otherBuff.size;
+            maxSize = otherBuff.maxSize;
+
+            memcpy(ini, otherBuff.ini, otherBuff.size);
+            return *this;
+        }
+
+        // Move Constructor
+        Buffer(Buffer &&otherBuff) {
+            ini = otherBuff.ini;
+            size = otherBuff.size;
+            maxSize = otherBuff.maxSize;
+
+            otherBuff.ini = nullptr;
+        }
+
+        // Move Assignment
+        Buffer &operator=(Buffer &&other_bfr) {
+            ini = other_bfr.ini;
+            size = other_bfr.size;
+            maxSize = other_bfr.maxSize;
+
+            other_bfr.ini = nullptr;
+
+            return *this;
+        }
+
+        // -- Methods
+        template <typename T>
+        T read(std::size_t const offset) {
+            if (offset + sizeof(T) >= maxSize || offset < 0)
+                printf("[Buffer] Can't read out of bounds");
+
+            return static_cast<T>(ini[offset]);
+        }
+
+        // expects real values such as uint8_t....
+        template <typename T>
+        void write(T const value) {
+            this->write(&value, sizeof(T));
+        }
+
+        template <typename T>
+        void write(T const value, int appendLength) {
+            increaseBufferSizeIfNecessary(appendLength);
+
+            memcpy(ini + size, value, appendLength);
+            size += appendLength;
+        }
+
+        void increaseBufferSizeIfNecessary(int appendLength) {
+            if (appendLength + size >= maxSize) {
+                // allocate new & bigger memory
+                maxSize = (appendLength + size) * 2;
+                char *newBuffer = new char[maxSize];
+                memcpy(newBuffer, ini, size);
+
+                delete[] ini;
+                ini = newBuffer;
+            }
+        }
+    };
+}  // namespace R
 
 namespace R::Utils {
 
@@ -98,186 +269,26 @@ namespace R::Utils {
     inline void stackTracing() {
         signal(SIGSEGV, onExceptionHandler);
     }
+
+    inline void hexDump(Buffer buffer) {
+        unsigned char *buf = (unsigned char *)buffer.ini;
+        int i, j;
+        for (i = 0; i < buffer.size; i += 16) {
+            printf("%06x: ", i);
+            for (j = 0; j < 16; j++)
+                if (i + j < buffer.size)
+                    printf("%02x ", buf[i + j]);
+                else
+                    printf("   ");
+            printf(" ");
+            for (j = 0; j < 16; j++)
+                if (i + j < buffer.size)
+                    printf("%c", isprint(buf[i + j]) ? buf[i + j] : '.');
+            printf("\n");
+        }
+    }
 }  // namespace R::Utils
 #include <iostream>
-
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-#    pragma message("WIN32 || _WIN32 || __WIN32__ || __NT__")
-#    ifndef PLATFORM_WINDOWS
-#        define PLATFORM_WINDOWS
-#    endif
-#    ifdef _WIN64
-#    endif
-
-#elif __APPLE__
-#    include <TargetConditionals.h>
-#    if TARGET_IPHONE_SIMULATOR
-#    elif TARGET_OS_MACCATALYST
-#    elif TARGET_OS_IPHONE
-#    elif TARGET_OS_MAC
-#        ifndef PLATFORM_MACOS
-#            define PLATFORM_MACOS
-#        endif
-#    else
-#        error "Unknown Apple platform"
-#    endif
-
-#elif __ANDROID__
-#    ifndef PLATFORM_LINUX
-#        define PLATFORM_LINUX
-#    endif
-#elif __linux__
-#    ifndef PLATFORM_LINUX
-#        define PLATFORM_LINUX
-#    endif
-#elif __unix__
-#    ifndef PLATFORM_LINUX
-#        define PLATFORM_LINUX
-#    endif
-#elif defined(_POSIX_VERSION)
-#    ifndef PLATFORM_LINUX
-#        define PLATFORM_LINUX
-#    endif
-#else
-#    error("Unknown compiler")
-#endif
-
-#ifdef PLATFORM_LINUX
-#    pragma message("This is linux")
-#elif defined(PLATFORM_MACOS)
-#    pragma message("This is MacOS")
-#elif defined(PLATFORM_WINDOWS)
-#    pragma message("This is Windows")
-#else
-#    pragma message("This is an unknown OS")
-#endif
-
-#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
-#    include <sys/socket.h>
-#    include <netinet/in.h>
-#    include <netinet/tcp.h>
-#    include <arpa/inet.h>
-#    include <unistd.h>
-#    include <fcntl.h>
-#    include <netdb.h>
-#elif defined(PLATFORM_WINDOWS)
-#    include <WinSock2.h>
-#    include <ws2tcpip.h>
-#    pragma comment(lib, "winmm.lib")
-#    pragma comment(lib, "WS2_32.lib")
-#    include <Windows.h>
-#endif
-
-
-#include <iostream>
-#include <stdio.h>
-#include <string.h>
-namespace R {
-    class Buffer {
-       public:
-        char *ini;
-        size_t size = 0;
-        size_t maxSize = 0;
-
-        // destructor
-        ~Buffer() {
-            delete[] ini;
-        }
-
-        // Constructor
-        explicit Buffer(int n)
-            : ini(new char[n]{0}), maxSize(n) {}
-
-        // Copy Constructor
-        Buffer(const Buffer &otherBuff) {
-            ini = new char[otherBuff.maxSize];
-            size = otherBuff.size;
-            maxSize = otherBuff.maxSize;
-
-            memcpy(ini, otherBuff.ini, otherBuff.size);
-        }
-
-        uint8_t operator[](int position) {
-            return ini[position];
-        }
-
-        // Copy assignment
-        Buffer &operator=(const Buffer &otherBuff) {
-            if (this == &otherBuff)
-                return *this;
-
-            delete[] ini;
-
-            ini = new char[otherBuff.maxSize];
-            size = otherBuff.size;
-            maxSize = otherBuff.maxSize;
-
-            memcpy(ini, otherBuff.ini, otherBuff.size);
-            return *this;
-        }
-
-        // Move Constructor
-        Buffer(Buffer &&otherBuff) {
-            ini = otherBuff.ini;
-            size = otherBuff.size;
-            maxSize = otherBuff.maxSize;
-
-            otherBuff.ini = nullptr;
-        }
-
-        // Move Assignment
-        Buffer &operator=(Buffer &&other_bfr) {
-            ini = other_bfr.ini;
-            size = other_bfr.size;
-            maxSize = other_bfr.maxSize;
-
-            other_bfr.ini = nullptr;
-
-            return *this;
-        }
-
-        // -- Methods
-        template <typename T>
-        T read(std::size_t const offset) {
-            if (offset + sizeof(T) >= maxSize || offset < 0)
-                printf("[Buffer] Can't read out of bounds");
-
-            return static_cast<T>(ini[offset]);
-        }
-
-        template <typename T>
-        void write(T const value) {
-            this->write(value, sizeof(T));
-        }
-
-        // specialization for char*
-        void write(const char *value, int appendLength) {
-            increaseBufferSizeIfNecessary(appendLength);
-
-            memcpy(ini + size, value, appendLength);
-            size += appendLength;
-        }
-
-        template <typename T>
-        void write(T const value, int appendLength) {
-            increaseBufferSizeIfNecessary(appendLength);
-
-            memcpy(ini + size, &value, appendLength);
-            size += appendLength;
-        }
-
-        void increaseBufferSizeIfNecessary(int appendLength) {
-            if (appendLength + size >= maxSize) {
-                // allocate new & bigger memory
-                maxSize = (appendLength + size) * 2;
-                char *newBuffer = new char[maxSize];
-
-                delete[] ini;
-                ini = newBuffer;
-            }
-        }
-    };
-}  // namespace R
 
 namespace R::Net {
 
@@ -362,6 +373,7 @@ namespace R::Net {
         int bufferSize = read(socket, stackBuffer, 255);
         if (bufferSize < 0) {
             onError(socket, false, message);
+            printf("Closed socket: %i\n", socket);
         } else {
             buffer.write(stackBuffer, bufferSize);
         }
@@ -487,12 +499,12 @@ namespace R::Net {
             return Net::sendMessage(_socket, buff, "[Client] Couldn't send message");
         }
 
-        inline Buffer readMessage(Socket socket) {
+        inline Buffer readMessage() {
             return Net::readMessage(_socket, "[Client] Couldn't read message");
         }
     };
 
-}  // namespace R
+}  // namespace R::Net
 
 namespace R::Net {
 
@@ -588,8 +600,8 @@ namespace R::Net {
             return AcceptSocket;
         }
 
-        inline int sendMessage(Buffer buff) {
-            return Net::sendMessage(_socket, buff, "[Server] Couldn't send message");
+        inline int sendMessage(Socket socket, Buffer buff) {
+            return Net::sendMessage(socket, buff, "[Server] Couldn't send message");
         }
 
         inline Buffer readMessage(Socket socket) {

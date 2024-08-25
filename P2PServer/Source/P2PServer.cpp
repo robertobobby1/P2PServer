@@ -1,8 +1,8 @@
 #include "P2PServer.h"
 
 void P2PServer::run() {
+    R::Utils::stackTracing();
     srand((unsigned)time(NULL));
-    struct timeval timeout = {TIMEOUT, 0};
     FD_ZERO(&readSocketsFDSet);
 
     socketQueue = std::queue<R::Net::Socket>();
@@ -27,7 +27,8 @@ void P2PServer::run() {
         }
 
         fd_set temporarySet = readSocketsFDSet;
-        if (select(FD_SETSIZE, &temporarySet, NULL, NULL, NULL) < 0) {
+        auto selectResponse = select(FD_SETSIZE, &temporarySet, NULL, NULL, NULL);
+        if (selectResponse < 0) {
             R::Net::onError(server->_socket, false, "[Logic Server] Error during select");
             keepRunning = false;
             break;
@@ -82,18 +83,50 @@ void P2PServer::addFDToSet(R::Net::Socket socket) {
 void P2PServer::worker() {
     R::Buffer buffer(255);
     R::Net::Socket clientSocket;
-    bool openConexion = true;
 
-    while (openConexion) {
+    while (true) {
         clientSocket = R::Utils::getThreadSafeFromQueue(socketQueue, socketQueueMutex, socketQueueCondition);
         buffer = server->readMessage(clientSocket);
 
         if (buffer.size > 0) {
             handleRequest(buffer, clientSocket);
         } else {
-            R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, clientSocket);
+            // clean up lobby if necessary
+            auto uuid = findUUIDbyClientSocket(clientSocket);
+            if (uuid != "") {
+                cleanUpLobbyByUUID(uuid);
+            } else {
+                R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, clientSocket);
+            }
         }
     }
+}
+
+void P2PServer::cleanUpLobbyByUUID(std::string &uuid) {
+    if (uuid == "") {
+        return;
+    }
+
+    auto lobbyMutex = lobbiesMutexMap[uuid].get();
+    if (lobbiesMap[uuid].IsLobbyComplete(lobbyMutex)) {
+        auto peer2 = lobbiesMap[uuid].GetPeer2(lobbyMutex);
+        R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, peer2.socket);
+    }
+
+    R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, lobbiesMap[uuid].peer1.socket);
+    lobbiesMap.erase(uuid);
+    lobbiesMutexMap.erase(uuid);
+}
+
+std::string P2PServer::findUUIDbyClientSocket(R::Net::Socket clientSocket) {
+    for (auto i = lobbiesMap.begin(); i != lobbiesMap.end(); i++) {
+        auto mutex = lobbiesMutexMap[i->first].get();
+        if (i->second.GetPeer2(mutex).socket == clientSocket || i->second.peer1.socket == clientSocket) {
+            return i->second.ID_Lobby;
+        }
+    }
+
+    return "";
 }
 
 /*
@@ -204,12 +237,11 @@ void P2PServer::sendUuidToClient(R::Net::Socket clientSocket, std::string &uuid)
     // action 0 is send uuid
     uint8_t headerFlags = 0;
 
-    // TODO htonl for uuid?
     buffer.write(SECURITY_HEADER, SECURITY_HEADER_LENGTH);
     buffer.write(headerFlags);
     buffer.write(uuid.c_str(), uuid.size());
 
-    auto sendResponse = server->sendMessage(buffer);
+    auto sendResponse = server->sendMessage(clientSocket, buffer);
 
     if (sendResponse == -1) {
         R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, clientSocket);

@@ -39,6 +39,7 @@ struct Peer {
 
     void print() {
         printf("Peer information:\n");
+        printf("Peer socket: %i\n", socket);
         printf("Peer Address Family: %d\n", this->family);
         printf("Peer Port: %d\n", this->port);
         printf("Peer IP Address: %s\n", inet_ntoa(this->ipAddress));
@@ -62,6 +63,7 @@ struct Lobby {
         std::lock_guard<std::mutex> lock(*mutex);
         return isLobbyComplete;
     };
+
     bool SetPeer2IfPossible(Peer peer, std::mutex* mutex) {
         std::lock_guard<std::mutex> lock(*mutex);
         if (!isLobbyComplete) {
@@ -72,6 +74,7 @@ struct Lobby {
 
         return false;
     }
+
     Peer GetPeer2(std::mutex* mutex) {
         std::lock_guard<std::mutex> lock(*mutex);
         return peer2;

@@ -28,3 +28,7 @@ workspace "Server"
 			"%{wks.location}/P2PServer/Source",
 			"%{wks.location}/P2PServer/Tests",
 		}
+		buildoptions
+		{
+			"-g"
+		}
