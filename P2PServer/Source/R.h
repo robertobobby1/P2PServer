@@ -1,5 +1,6 @@
 #pragma once
 
+
 #include <cstdint>
 #include <queue>
 #include <execinfo.h>
@@ -60,6 +61,7 @@
 #    pragma message("This is an unknown OS")
 #endif
 
+
 #include <stdio.h>
 
 #ifdef DISABLE_LOGGING
@@ -69,6 +71,7 @@
 #    define RLog(f_, ...) printf((f_), ##__VA_ARGS__)
 
 #endif
+
 
 namespace R {
     class Buffer {
@@ -340,6 +343,7 @@ namespace R::Utils {
 #    pragma comment(lib, "WS2_32.lib")
 #    include <Windows.h>
 #endif
+
 
 namespace R::Net {
 
@@ -665,7 +669,7 @@ namespace R::Net {
 
 namespace R::Net::P2P {
     inline const int SECURITY_HEADER_LENGTH = 23;
-    inline const char *SECURITY_HEADER = "0sdFGeVi3ItN1qwsHp3mcDF";
+    inline const char* SECURITY_HEADER = "0sdFGeVi3ItN1qwsHp3mcDF";
     inline const int UUID_LENGTH = 5;
 
     // Client-Server data flags
@@ -683,12 +687,12 @@ namespace R::Net::P2P {
         ServerClientHeaderFlags_Action = 1 << 7,  // 10000000
     };
 
-    enum LobbyPrivacyType {
+    enum class LobbyPrivacyType {
         Private,
         Public
     };
 
-    enum ClientActionType {
+    enum class ClientActionType {
         Create,
         Connect,
         Disconnect,
@@ -700,7 +704,7 @@ namespace R::Net::P2P {
         SendUUID,
     };
 
-    inline bool isValidAuthedRequest(Buffer &buffer) {
+    inline bool isValidAuthedRequest(Buffer& buffer) {
         return Utils::isInRange(buffer.size, 24, 29) && strncmp(buffer.ini, SECURITY_HEADER, SECURITY_HEADER_LENGTH) == 0;
     }
 
@@ -712,7 +716,7 @@ namespace R::Net::P2P {
         return buffer;
     }
 
-    inline uint8_t getProtocolHeader(Buffer &buffer) {
+    inline uint8_t getProtocolHeader(Buffer& buffer) {
         return buffer.ini[SECURITY_HEADER_LENGTH];
     }
 
@@ -766,7 +770,7 @@ namespace R::Net::P2P {
         return createClientBuffer(LobbyPrivacyType::Public, ClientActionType::Connect);
     }
 
-    inline Buffer createClientPrivateConnectBuffer(std::string &uuid) {
+    inline Buffer createClientPrivateConnectBuffer(std::string& uuid) {
         auto buffer = createClientBuffer(LobbyPrivacyType::Private, ClientActionType::Connect);
 
         buffer.write(uuid.c_str(), UUID_LENGTH);
@@ -825,7 +829,7 @@ namespace R::Net::P2P {
         return buffer;
     }
 
-    inline Buffer createServerSendUUIDBuffer(std::string &uuid) {
+    inline Buffer createServerSendUUIDBuffer(std::string& uuid) {
         auto buffer = createSecuredBuffer();
         auto headerFlags = createServerProtocolHeader(ServerActionType::Connect);
 
