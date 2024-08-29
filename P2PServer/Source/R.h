@@ -65,10 +65,10 @@
 #include <stdio.h>
 
 #ifdef DISABLE_LOGGING
-#    define RLog(f_, ...) ()
+#    define RLog(msg, ...) ()
 
 #else
-#    define RLog(f_, ...) printf((f_), ##__VA_ARGS__)
+#    define RLog(msg, ...) printf(msg, ##__VA_ARGS__)
 
 #endif
 
@@ -149,46 +149,16 @@ namespace R {
         // -- Methods
         template <typename T>
         T read(std::size_t const offset) {
-            if (!inBoundOffset<T>(offset))
-                return 0;
+            if (offset + sizeof(T) >= maxSize || offset < 0)
+                RLog("[Buffer] Can't access out of bounds");
 
             return static_cast<T>(ini[offset]);
-        }
-
-        template <>
-        uint16_t read<uint16_t>(std::size_t const offset) {
-            if (!inBoundOffset<uint16_t>(offset))
-                return 0;
-
-            auto value = static_cast<uint16_t>(ini[offset]);
-            return ntohs(value);
-        }
-
-        template <>
-        uint32_t read<uint32_t>(std::size_t const offset) {
-            if (!inBoundOffset<uint32_t>(offset))
-                return 0;
-
-            auto value = static_cast<uint32_t>(ini[offset]);
-            return ntohs(value);
         }
 
         // expects real values such as uint8_t and not pointers
         template <typename T>
         void write(T const value) {
             this->write(&value, sizeof(T));
-        }
-
-        template <>
-        void write<uint16_t>(uint16_t const value) {
-            uint16_t invertedBytes = htons(value);
-            this->write(&invertedBytes, sizeof(uint16_t));
-        }
-
-        template <>
-        void write<uint32_t>(uint32_t const value) {
-            uint32_t invertedBytes = htonl(value);
-            this->write(&invertedBytes, sizeof(uint32_t));
         }
 
         // expects pointers to values
@@ -266,6 +236,17 @@ namespace R::Utils {
     inline void setThreadSafeToQueue(std::queue<T> &queue, std::mutex &queueMutex, T value) {
         std::lock_guard<std::mutex> lock(queueMutex);
         queue.push(value);
+    }
+
+    template <class ADAPTER>
+    const auto &getQueueCObject(ADAPTER &a) {
+        struct hack : private ADAPTER {
+            static auto &get(ADAPTER &a) {
+                return a.*(&hack::c);
+            }
+        };
+
+        return hack::get(a);
     }
 
     inline std::string generateUUID(int length) {
@@ -668,6 +649,8 @@ namespace R::Net {
 #include <cstdint>
 
 namespace R::Net::P2P {
+
+    inline const int MAX_PACKAGE_LENGTH = 40;
     inline const int SECURITY_HEADER_LENGTH = 23;
     inline const char* SECURITY_HEADER = "0sdFGeVi3ItN1qwsHp3mcDF";
     inline const int UUID_LENGTH = 5;
@@ -705,7 +688,7 @@ namespace R::Net::P2P {
     };
 
     inline bool isValidAuthedRequest(Buffer& buffer) {
-        return Utils::isInRange(buffer.size, 24, 29) && strncmp(buffer.ini, SECURITY_HEADER, SECURITY_HEADER_LENGTH) == 0;
+        return Utils::isInRange(buffer.size, SECURITY_HEADER_LENGTH + 1, MAX_PACKAGE_LENGTH) && strncmp(buffer.ini, SECURITY_HEADER, SECURITY_HEADER_LENGTH) == 0;
     }
 
     inline Buffer createSecuredBuffer() {
@@ -718,6 +701,15 @@ namespace R::Net::P2P {
 
     inline uint8_t getProtocolHeader(Buffer& buffer) {
         return buffer.ini[SECURITY_HEADER_LENGTH];
+    }
+
+    inline Buffer getPayload(Buffer& buffer) {
+        auto payloadBuffer = Buffer(buffer.size);
+        auto headerSize = SECURITY_HEADER_LENGTH + 1;
+
+        payloadBuffer.write(buffer.ini + headerSize, buffer.size - headerSize);
+
+        return payloadBuffer;
     }
 
     // start Client section
@@ -808,9 +800,22 @@ namespace R::Net::P2P {
 
     // start Server secion
 
+    struct ServerConnectPayload {
+        in_addr ipAddress;
+        uint16_t port;
+        uint32_t delay;
+
+        void Print() {
+            RLog("Other peer's information:\n");
+            RLog("Peer Port: %d\n", this->port);
+            RLog("Peer IP Address: %s\n", inet_ntoa({this->ipAddress}));
+            RLog("Peer delay: %i\n", this->delay);
+        }
+    };
+
     inline uint8_t createServerProtocolHeader(ServerActionType serverActionType) {
         uint8_t headerFlags = 0;
-        if (serverActionType == ServerActionType::SendUUID) {
+        if (serverActionType == ServerActionType::Connect) {
             R::Utils::setFlag(headerFlags, ClientServerHeaderFlags_Bit1);  // 1
         }
 
@@ -831,7 +836,7 @@ namespace R::Net::P2P {
 
     inline Buffer createServerSendUUIDBuffer(std::string& uuid) {
         auto buffer = createSecuredBuffer();
-        auto headerFlags = createServerProtocolHeader(ServerActionType::Connect);
+        auto headerFlags = createServerProtocolHeader(ServerActionType::SendUUID);
 
         buffer.write(headerFlags);
         buffer.write(uuid.c_str(), UUID_LENGTH);
@@ -841,9 +846,36 @@ namespace R::Net::P2P {
 
     inline ServerActionType getServerActionTypeFromHeaderByte(uint8_t headerByte) {
         if (R::Utils::isFlagSet(headerByte, ServerClientHeaderFlags::ServerClientHeaderFlags_Action)) {
-            return ServerActionType::SendUUID;
+            return ServerActionType::Connect;
         }
-        return ServerActionType::Connect;
+        return ServerActionType::SendUUID;
+    }
+
+    inline std::string getUUIDFromSendUUIDBuffer(Buffer& buffer) {
+        auto protocolHeader = getProtocolHeader(buffer);
+        auto actionType = getServerActionTypeFromHeaderByte(protocolHeader);
+
+        if (actionType != ServerActionType::SendUUID)
+            return "";
+
+        auto payload = getPayload(buffer);
+        return std::string(payload.ini, UUID_LENGTH);
+    }
+
+    inline ServerConnectPayload getPayloadFromServerConnectBuffer(Buffer& buffer) {
+        auto protocolHeader = getProtocolHeader(buffer);
+        auto actionType = getServerActionTypeFromHeaderByte(protocolHeader);
+
+        if (actionType != ServerActionType::Connect)
+            return {0, 0, 0};  // empty/error
+
+        auto payload = getPayload(buffer);
+
+        auto ipAddress = payload.read<in_addr>(0);
+        auto port = payload.read<uint16_t>(4);
+        auto delay = payload.read<uint32_t>(6);
+
+        return {ipAddress, ntohs(port), ntohl(delay)};
     }
 
     // end Server secion
