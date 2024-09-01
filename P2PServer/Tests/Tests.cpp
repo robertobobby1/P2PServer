@@ -1,7 +1,6 @@
 #include "Tests.h"
 
 const std::function<std::pair<std::string, bool>()> Tests_functionArray[] = {
-    Tests::Peer2MutualExclusion,
     Tests::QueuesMutualExclusion,
     Tests::QueuesMutualExclusionWithCondition
 };

@@ -72,6 +72,11 @@
 
 #endif
 
+#define BIND_FN(fn)                                             \
+    [this](auto&&... args) -> decltype(auto) {                  \
+        return this->fn(std::forward<decltype(args)>(args)...); \
+    }
+
 
 namespace R {
     class Buffer {
@@ -152,7 +157,9 @@ namespace R {
             if (offset + sizeof(T) >= maxSize || offset < 0)
                 RLog("[Buffer] Can't access out of bounds");
 
-            return static_cast<T>(ini[offset]);
+            T value;
+            memcpy(&value, ini + offset, sizeof(T));
+            return value;
         }
 
         // expects real values such as uint8_t and not pointers
@@ -247,6 +254,23 @@ namespace R::Utils {
         };
 
         return hack::get(a);
+    }
+
+    template <typename T>
+    void removeFromVector(std::vector<T> &vector, T value) {
+        auto it = std::find(vector.begin(), vector.end(), value);
+        if (it != vector.end()) {
+            vector.erase(it);
+        }
+    }
+
+    template <typename T, typename K>
+    inline bool keyExistsInMap(std::unordered_map<T, K> &map, T &key) {
+        auto it = map.find(key);
+        if (it == map.end()) {
+            return false;
+        }
+        return true;
     }
 
     inline std::string generateUUID(int length) {
@@ -541,111 +565,6 @@ namespace R::Net {
 
 }  // namespace R::Net
 
-namespace R::Net {
-
-    class Server {
-       public:
-        Socket _socket;
-        bool isRunning = false;
-
-        static std::shared_ptr<Server> make() {
-            return std::make_shared<Server>();
-        }
-
-        static std::shared_ptr<Server> makeAndRun(int port = 3000, int backlog = 10) {
-            auto server = make();
-            server->run(port, backlog);
-            return server;
-        }
-
-#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
-
-        inline bool run(int port = 3000, int backlog = 10) {
-            _socket = socket(AF_INET, SOCK_STREAM, 0);
-
-            sockaddr_in serverAddress;
-            serverAddress.sin_family = AF_INET;
-            serverAddress.sin_port = htons(port);
-            serverAddress.sin_addr.s_addr = INADDR_ANY;
-
-            if (checkForErrors(bind(_socket, (sockaddr *)&serverAddress, sizeof(serverAddress)), -1, "[Server] Error on socket binding", true)) {
-                return false;
-            }
-
-            if (checkForErrors(listen(_socket, backlog), -1, "[Server] Error while starting to listen on port", true)) {
-                return false;
-            }
-
-            RLog("[Server] Started listening in port %i\n", port);
-            isRunning = true;
-            return true;
-        }
-
-#elif defined(PLATFORM_WINDOWS)
-
-        inline bool run(int port = 3000, int backlog = 10) {
-            WSADATA wsaData;
-            sockaddr_in service;
-            service.sin_family = AF_INET;
-            service.sin_port = htons(port);
-            inet_pton(AF_INET, "127.0.0.1", &service.sin_addr);
-
-            int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-            if (iResult != NO_ERROR) {
-                onError(_socket, false, "");
-                return false;
-            }
-
-            _socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-            if (checkForErrors(_socket, INVALID_SOCKET, "[Server] Error on socket creation", false))
-                return false;
-
-            // If error on socket binding it may mean that the port is in use, we can search a new one!
-            if (checkForErrors(bind(_socket, (SOCKADDR *)&service, sizeof(service)), SOCKET_ERROR, "[Server] Error on socket binding", true))
-                return false;
-
-            if (checkForErrors(listen(_socket, 1), SOCKET_ERROR, "[Server] Error while starting to listen on port", true))
-                return false;
-
-            unsigned long blocking_mode = 0;
-            if (checkForErrors(ioctlsocket(_socket, FIONBIO, &blocking_mode), -1, "[Server] Error while setting the blocking mode", true))
-                return false;
-
-            RLog("[Server] Started listening in port %i\n", port);
-            isRunning = true;
-            return true;
-        }
-
-#endif
-
-        inline void terminate() {
-            onError(_socket, true, "[Server] Closing the server socket!");
-        }
-
-        inline Socket acceptNewConnection(bool checkErrors = true) {
-            if (!isRunning) {
-                RLog("[Server] Cannot accept connections if server is not running");
-                return -1;
-            }
-
-            Socket AcceptSocket = accept(_socket, NULL, NULL);
-            if (checkErrors && checkForErrors(AcceptSocket, SocketError, "[Server] Error while accepting new connections", true))
-                return -1;
-
-            return AcceptSocket;
-        }
-
-        inline int sendMessage(Socket socket, Buffer buff) {
-            return Net::sendMessage(socket, buff, "[Server] Couldn't send message");
-        }
-
-        inline Buffer readMessage(Socket socket) {
-            return Net::readMessage(socket, "[Server] Couldn't read message");
-        }
-    };
-
-}  // namespace R::Net
-
 #include <cstdint>
 
 namespace R::Net::P2P {
@@ -881,3 +800,187 @@ namespace R::Net::P2P {
     // end Server secion
 
 }  // namespace R::Net::P2P
+
+#include <chrono>
+#include <vector>
+#include <functional>
+#include <thread>
+
+namespace R::Net::P2P {
+
+    typedef std::function<Socket()> LogCallbackFunction;
+    inline const int defaultTimerInSeconds = 10;
+    inline uint8_t KeepAliveHeader = 255;
+
+    class KeepAliveManager {
+       public:
+        KeepAliveManager(int _timerInSeconds)
+            : timerInSeconds(_timerInSeconds) {}
+        KeepAliveManager()
+            : timerInSeconds(defaultTimerInSeconds) {}
+
+        static inline std::shared_ptr<KeepAliveManager> make(int _timerInSeconds = defaultTimerInSeconds) {
+            return std::make_shared<KeepAliveManager>(_timerInSeconds);
+        }
+
+        static inline std::shared_ptr<KeepAliveManager> makeAndRun(int _timerInSeconds = defaultTimerInSeconds) {
+            auto instance = make(_timerInSeconds);
+            instance->runInNewThread();
+            return instance;
+        }
+
+        static inline bool isKeepAlivePackage(Buffer& buffer) {
+            return isValidAuthedRequest(buffer) && getProtocolHeader(buffer) == KeepAliveHeader;
+        }
+
+        inline void run() {
+            int sendResponse = 0;
+            auto buffer = createSecuredBuffer();
+            buffer.write(KeepAliveHeader);
+
+            while (keepRunning) {
+                std::this_thread::sleep_for(std::chrono::seconds(timerInSeconds));
+                for (auto& socket : keepAliveSockets) {
+                    sendResponse = Net::sendMessage(socket, buffer, "[Keep Alive] Client socket disconected!");
+                    if (sendResponse != -1) {
+                        continue;
+                    }
+
+                    removeSocketToKeepAlive(socket);
+                    if (onClosedCallback != nullptr) {
+                        onClosedCallback(socket);
+                    }
+                }
+            }
+        }
+
+        inline void runInNewThread() {
+            runningThread = std::thread(BIND_FN(KeepAliveManager::run));
+        }
+
+        inline void addNewSocketToKeepAlive(Socket _socket) {
+            keepAliveSockets.push_back(_socket);
+        }
+
+        inline void removeSocketToKeepAlive(Socket _socket) {
+            Utils::removeFromVector(keepAliveSockets, _socket);
+        }
+
+        inline void addOnConnectionClosedCallback(std::function<void(Socket)> func) {
+            onClosedCallback = func;
+        }
+
+        std::vector<Socket> keepAliveSockets;
+        std::function<void(Socket)> onClosedCallback = nullptr;
+        std::thread runningThread;
+
+        // flag to be able to stop it
+        bool keepRunning = true;
+        int timerInSeconds;
+    };
+}  // namespace R::Net::P2P
+
+namespace R::Net {
+
+    class Server {
+       public:
+        Socket _socket;
+        bool isRunning = false;
+
+        static std::shared_ptr<Server> make() {
+            return std::make_shared<Server>();
+        }
+
+        static std::shared_ptr<Server> makeAndRun(int port = 3000, int backlog = 10) {
+            auto server = make();
+            server->run(port, backlog);
+            return server;
+        }
+
+#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
+
+        inline bool run(int port = 3000, int backlog = 10) {
+            _socket = socket(AF_INET, SOCK_STREAM, 0);
+
+            sockaddr_in serverAddress;
+            serverAddress.sin_family = AF_INET;
+            serverAddress.sin_port = htons(port);
+            serverAddress.sin_addr.s_addr = INADDR_ANY;
+
+            if (checkForErrors(bind(_socket, (sockaddr *)&serverAddress, sizeof(serverAddress)), -1, "[Server] Error on socket binding", true)) {
+                return false;
+            }
+
+            if (checkForErrors(listen(_socket, backlog), -1, "[Server] Error while starting to listen on port", true)) {
+                return false;
+            }
+
+            RLog("[Server] Started listening in port %i\n", port);
+            isRunning = true;
+            return true;
+        }
+
+#elif defined(PLATFORM_WINDOWS)
+
+        inline bool run(int port = 3000, int backlog = 10) {
+            WSADATA wsaData;
+            sockaddr_in service;
+            service.sin_family = AF_INET;
+            service.sin_port = htons(port);
+            inet_pton(AF_INET, "127.0.0.1", &service.sin_addr);
+
+            int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+            if (iResult != NO_ERROR) {
+                onError(_socket, false, "");
+                return false;
+            }
+
+            _socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            if (checkForErrors(_socket, INVALID_SOCKET, "[Server] Error on socket creation", false))
+                return false;
+
+            // If error on socket binding it may mean that the port is in use, we can search a new one!
+            if (checkForErrors(bind(_socket, (SOCKADDR *)&service, sizeof(service)), SOCKET_ERROR, "[Server] Error on socket binding", true))
+                return false;
+
+            if (checkForErrors(listen(_socket, 1), SOCKET_ERROR, "[Server] Error while starting to listen on port", true))
+                return false;
+
+            unsigned long blocking_mode = 0;
+            if (checkForErrors(ioctlsocket(_socket, FIONBIO, &blocking_mode), -1, "[Server] Error while setting the blocking mode", true))
+                return false;
+
+            RLog("[Server] Started listening in port %i\n", port);
+            isRunning = true;
+            return true;
+        }
+
+#endif
+
+        inline void terminate() {
+            onError(_socket, true, "[Server] Closing the server socket!");
+        }
+
+        inline Socket acceptNewConnection(bool checkErrors = true) {
+            if (!isRunning) {
+                RLog("[Server] Cannot accept connections if server is not running");
+                return -1;
+            }
+
+            Socket AcceptSocket = accept(_socket, NULL, NULL);
+            if (checkErrors && checkForErrors(AcceptSocket, SocketError, "[Server] Error while accepting new connections", true))
+                return -1;
+
+            return AcceptSocket;
+        }
+
+        inline int sendMessage(Socket socket, Buffer buff) {
+            return Net::sendMessage(socket, buff, "[Server] Couldn't send message");
+        }
+
+        inline Buffer readMessage(Socket socket) {
+            return Net::readMessage(socket, "[Server] Couldn't read message");
+        }
+    };
+
+}  // namespace R::Net
