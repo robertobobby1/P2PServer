@@ -1,6 +1,6 @@
 outputdir = "%{cfg.buildcfg}-%{cfg.system}"
 
-workspace "Server"
+workspace "P2PServer"
 	configurations
 	{
 		"Debug",
