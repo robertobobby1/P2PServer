@@ -466,6 +466,13 @@ namespace R::Net {
             return client;
         }
 
+        static std::shared_ptr<Client> makeAndSet(Socket socket) {
+            auto client = make();
+            client->_socket = socket;
+            client->isRunning = true;
+            return client;
+        }
+
 #if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
 
         inline bool run(const char *hostname, int port) {
@@ -555,11 +562,19 @@ namespace R::Net {
         }
 
         inline int sendMessage(Buffer buff) {
-            return Net::sendMessage(_socket, buff, "[Client] Couldn't send message");
+            auto sendResponse = Net::sendMessage(_socket, buff, "[Client] Couldn't send message");
+            if (sendResponse == -1) {
+                isRunning = false;
+            }
+            return sendResponse;
         }
 
         inline Buffer readMessage() {
-            return Net::readMessage(_socket, "[Client] Couldn't read message");
+            auto readResponse = Net::readMessage(_socket, "[Client] Couldn't read message");
+            if (readResponse.size < 0) {
+                isRunning = false;
+            }
+            return readResponse;
         }
     };
 
@@ -574,6 +589,11 @@ namespace R::Net::P2P {
     inline const char* SECURITY_HEADER = "0sdFGeVi3ItN1qwsHp3mcDF";
     inline const int UUID_LENGTH = 5;
 
+    enum ClientClientHeaderFlags {
+        // Type of the action we are trying peer-message
+        ClientClientHeaderFlags_Bit1 = 1 << 7,  // 10000000
+    };
+
     // Client-Server data flags
     enum ClientServerHeaderFlags {
         // Type of the lobby public/private
@@ -585,8 +605,9 @@ namespace R::Net::P2P {
 
     // Server-Client data flags
     enum ServerClientHeaderFlags {
-        // action type send uuid/connect
-        ServerClientHeaderFlags_Action = 1 << 7,  // 10000000
+        // action type send-uuid/connect
+        ServerClientHeaderFlags_Bit1 = 1 << 7,  // 10000000
+
     };
 
     enum class LobbyPrivacyType {
@@ -599,6 +620,10 @@ namespace R::Net::P2P {
         Connect,
         Disconnect,
         PeerConnectSuccess
+    };
+
+    enum ClientClientActionType {
+        PeerMessage
     };
 
     enum ServerActionType {
@@ -673,17 +698,26 @@ namespace R::Net::P2P {
         return createClientBuffer(LobbyPrivacyType::Private, ClientActionType::Disconnect);
     }
 
-    inline Buffer createClientCreateLobbyBuffer(LobbyPrivacyType privacyType) {
-        return createClientBuffer(privacyType, ClientActionType::Create);
+    inline Buffer createClientCreateLobbyBuffer(LobbyPrivacyType privacyType, uint16_t clientPort) {
+        auto buffer = createClientBuffer(privacyType, ClientActionType::Create);
+
+        buffer.write(htons(clientPort));
+
+        return buffer;
     }
 
-    inline Buffer createClientPublicConnectBuffer() {
-        return createClientBuffer(LobbyPrivacyType::Public, ClientActionType::Connect);
+    inline Buffer createClientPublicConnectBuffer(uint16_t clientPort) {
+        auto buffer = createClientBuffer(LobbyPrivacyType::Public, ClientActionType::Connect);
+
+        buffer.write(htons(clientPort));
+
+        return buffer;
     }
 
-    inline Buffer createClientPrivateConnectBuffer(std::string& uuid) {
+    inline Buffer createClientPrivateConnectBuffer(std::string& uuid, uint16_t clientPort) {
         auto buffer = createClientBuffer(LobbyPrivacyType::Private, ClientActionType::Connect);
 
+        buffer.write(htons(clientPort));
         buffer.write(uuid.c_str(), UUID_LENGTH);
 
         return buffer;
@@ -725,17 +759,18 @@ namespace R::Net::P2P {
         uint32_t delay;
 
         void Print() {
-            RLog("Other peer's information:\n");
-            RLog("Peer Port: %d\n", this->port);
-            RLog("Peer IP Address: %s\n", inet_ntoa({this->ipAddress}));
+            RLog("\nStart peer info ---- \n\n");
+            RLog("Peer Port: %i\n", this->port);
+            RLog("Peer IP Address: %s\n", inet_ntoa(this->ipAddress));
             RLog("Peer delay: %i\n", this->delay);
+            RLog("\nEnd peer info   ---- \n\n");
         }
     };
 
     inline uint8_t createServerProtocolHeader(ServerActionType serverActionType) {
         uint8_t headerFlags = 0;
-        if (serverActionType == ServerActionType::Connect) {
-            R::Utils::setFlag(headerFlags, ClientServerHeaderFlags_Bit1);  // 1
+        if (serverActionType == ServerActionType::Connect) {  // 1
+            R::Utils::setFlag(headerFlags, ClientServerHeaderFlags_Bit1);
         }
 
         return headerFlags;
@@ -747,8 +782,8 @@ namespace R::Net::P2P {
 
         buffer.write(headerFlags);
         buffer.write(ipAddress);
-        buffer.write(port);
-        buffer.write(delay);
+        buffer.write(htons(port));
+        buffer.write(htonl(delay));
 
         return buffer;
     }
@@ -764,7 +799,7 @@ namespace R::Net::P2P {
     }
 
     inline ServerActionType getServerActionTypeFromHeaderByte(uint8_t headerByte) {
-        if (R::Utils::isFlagSet(headerByte, ServerClientHeaderFlags::ServerClientHeaderFlags_Action)) {
+        if (R::Utils::isFlagSet(headerByte, ServerClientHeaderFlags::ServerClientHeaderFlags_Bit1)) {
             return ServerActionType::Connect;
         }
         return ServerActionType::SendUUID;
@@ -785,8 +820,9 @@ namespace R::Net::P2P {
         auto protocolHeader = getProtocolHeader(buffer);
         auto actionType = getServerActionTypeFromHeaderByte(protocolHeader);
 
-        if (actionType != ServerActionType::Connect)
+        if (actionType != ServerActionType::Connect) {
             return {0, 0, 0};  // empty/error
+        }
 
         auto payload = getPayload(buffer);
 
@@ -798,6 +834,32 @@ namespace R::Net::P2P {
     }
 
     // end Server secion
+
+    // start Client Client section
+
+    inline ClientClientActionType getClientClientProtocolHeader(uint8_t headerFlags) {
+        return ClientClientActionType::PeerMessage;
+    }
+
+    inline uint8_t createClientClientProtocolHeader(ClientClientActionType actionType) {
+        uint8_t headerFlags = 0;
+        if (actionType == ClientClientActionType::PeerMessage) {
+            R::Utils::setFlag(headerFlags, ClientClientHeaderFlags::ClientClientHeaderFlags_Bit1);
+        }
+
+        return headerFlags;
+    }
+
+    inline Buffer createClientPeerMessageBuffer() {
+        auto buffer = createSecuredBuffer();
+        auto headerFlags = createClientClientProtocolHeader(ClientClientActionType::PeerMessage);
+
+        buffer.write(headerFlags);
+
+        return buffer;
+    }
+
+    // end Client Client section
 
 }  // namespace R::Net::P2P
 
@@ -833,6 +895,25 @@ namespace R::Net::P2P {
             return isValidAuthedRequest(buffer) && getProtocolHeader(buffer) == KeepAliveHeader;
         }
 
+        static inline int sendKeepAlivePackage(Socket socket) {
+            auto buffer = createSecuredBuffer();
+            buffer.write(KeepAliveHeader);
+
+            return sendKeepAlivePackage(socket, buffer);
+        }
+
+        static inline int sendKeepAlivePackage(Socket socket, Buffer& buffer) {
+            return Net::sendMessage(socket, buffer, "[Keep Alive] Client socket disconected!");
+        }
+
+        static inline bool isSocketActive(Socket socket) {
+            auto sendResponse = sendKeepAlivePackage(socket);
+            if (sendResponse == -1) {
+                return false;
+            }
+            return true;
+        }
+
         inline void run() {
             int sendResponse = 0;
             auto buffer = createSecuredBuffer();
@@ -841,7 +922,7 @@ namespace R::Net::P2P {
             while (keepRunning) {
                 std::this_thread::sleep_for(std::chrono::seconds(timerInSeconds));
                 for (auto& socket : keepAliveSockets) {
-                    sendResponse = Net::sendMessage(socket, buffer, "[Keep Alive] Client socket disconected!");
+                    sendResponse = sendKeepAlivePackage(socket, buffer);
                     if (sendResponse != -1) {
                         continue;
                     }

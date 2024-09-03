@@ -20,7 +20,7 @@ namespace P2PServer {
     inline const int PORT = 3000;
     inline const int BACKLOG = 10;
     inline const int CLEANUP_TIMER_SECONDS = 10;
-    inline const int KEEP_ALIVE_TIMER_SECONDS = 10;
+    inline const int KEEP_ALIVE_TIMER_SECONDS = 3;
 
     inline bool keepRunning = true;
     inline std::shared_ptr<R::Net::Server> server;
@@ -53,12 +53,15 @@ namespace P2PServer {
     void sendUuidToClient(R::Net::Socket clientSocket, std::string &uuid);
     void connectPeersIfNecessary(std::string &uuid);
 
-    std::string findRandomMatch(R::Net::Socket clientSocket);
-    std::string startNewLobby(R::Net::Socket clientSocket, Rp2p::LobbyPrivacyType ClientServerHeaderFlags);
+    void joinPrivateMatch(R::Net::Socket clientSocket, std::string &uuid, uint16_t clientPort);
+    std::string findRandomMatch(R::Net::Socket clientSocket, uint16_t clientPort);
+    std::string startNewLobby(R::Net::Socket clientSocket, Rp2p::LobbyPrivacyType ClientServerHeaderFlags, uint16_t clientPort);
     std::string generateNewUUID();
     std::string findUUIDbyClientSocket(R::Net::Socket clientSocket);
 
-    void cleanUpLobbyByUUID(std::string &uuid);
+    bool checkLobbyValidity(std::string &uuid);
+
+    void cleanUpLobbyByUUID(std::string &uuid, bool tryToReconnect = true);
     void cleanUpLobbyBySocket(R::Net::Socket clientSocket);
     std::thread cleanUpMarkedLobbiesThread();
 

@@ -13,7 +13,7 @@ struct Peer {
 
     void print() {
         RLog("\nStart peer info ---- %i\n\n", socket);
-        RLog("Peer Port: %d\n", this->port);
+        RLog("Peer Port: %i\n", this->port);
         RLog("Peer IP Address: %s\n", inet_ntoa(this->ipAddress));
         RLog("Average RTT: %i\n", this->averageRTT);
         RLog("\nEnd peer info   ---- %i\n\n", socket);
@@ -30,7 +30,6 @@ struct Lobby {
     R::Net::P2P::LobbyPrivacyType lobbyPrivacyType;
     bool isLobbyComplete = false;
     bool isMarkedForCleanup = false;
-    bool peerConnectionSendFailure = false;
 
     std::mutex* mutex = new std::mutex();
 
