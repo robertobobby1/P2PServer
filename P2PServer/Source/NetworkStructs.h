@@ -5,16 +5,20 @@
 struct Peer {
    public:
     R::Net::Socket socket;
+    uint16_t port;
     // always 4 bytes B1.B2.B3.B4 it is already in network order!
     in_addr ipAddress;
-    uint16_t port;
-    uint8_t family;
     uint32_t averageRTT;
 
     void print() {
+        char ipBuffer[INET_ADDRSTRLEN]{0};
+        char ip6Buffer[INET6_ADDRSTRLEN]{0};
+
         RLog("\nStart peer info ---- %i\n\n", socket);
         RLog("Peer Port: %i\n", this->port);
+
         RLog("Peer IP Address: %s\n", inet_ntoa(this->ipAddress));
+
         RLog("Average RTT: %i\n", this->averageRTT);
         RLog("\nEnd peer info   ---- %i\n\n", socket);
     }

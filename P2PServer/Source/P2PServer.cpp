@@ -48,7 +48,10 @@ void P2PServer::run() {
 
             R::Net::Socket socketToAttend;
             if (activeSocket == server->_socket) {
-                auto acceptSocket = server->acceptNewConnection(false);
+                auto acceptResponse = server->acceptNewConnection(false);
+                auto acceptSocket = acceptResponse.socket;
+                socketToIpAddressMap[acceptSocket] = acceptResponse.ipAddress;
+
                 if (acceptSocket == SocketError) {
                     // socket is non blocking, just continue, this is already handled
                     // socket is a broken pipe, just ignore it
@@ -77,8 +80,10 @@ void P2PServer::run() {
 }
 
 void P2PServer::removeFDFromSet(R::Net::Socket socket) {
-    FD_CLR(socket, &readSocketsFDSet);
     R::Utils::removeFromVector(activeSockets, socket);
+    socketToIpAddressMap.erase(socket);
+
+    FD_CLR(socket, &readSocketsFDSet);
     close(socket);
 }
 
@@ -282,7 +287,7 @@ void P2PServer::sendUuidToClient(R::Net::Socket clientSocket, std::string &uuid)
 std::string P2PServer::startNewLobby(R::Net::Socket clientSocket, Rp2p::LobbyPrivacyType lobbyPrivacyType, uint16_t clientPort) {
     Lobby lobby;
     lobby.ID_Lobby = generateNewUUID();
-    lobby.peer1 = NetworkUtils::getPeerInfo(clientSocket, clientPort);
+    lobby.peer1 = {clientSocket, clientPort, socketToIpAddressMap[clientSocket], R::Net::getRTTOfClient(clientSocket)};
     lobby.lobbyPrivacyType = lobbyPrivacyType;
 
     if (lobbyPrivacyType == Rp2p::LobbyPrivacyType::Public) {
@@ -304,7 +309,7 @@ std::string P2PServer::findRandomMatch(R::Net::Socket clientSocket, uint16_t cli
         return startNewLobby(clientSocket, Rp2p::LobbyPrivacyType::Public, clientPort);
     }
 
-    lobbiesMap[uuid].peer2 = NetworkUtils::getPeerInfo(clientSocket, clientPort);
+    lobbiesMap[uuid].peer2 = {clientSocket, clientPort, socketToIpAddressMap[clientSocket], R::Net::getRTTOfClient(clientSocket)};
     lobbiesMap[uuid].isLobbyComplete = true;
     lobbiesMap[uuid].Print();
     return uuid;
@@ -322,7 +327,7 @@ void P2PServer::joinPrivateMatch(R::Net::Socket clientSocket, std::string &uuid,
         return;
     }
 
-    lobbiesMap[uuid].peer2 = NetworkUtils::getPeerInfo(clientSocket, clientPort);
+    lobbiesMap[uuid].peer2 = {clientSocket, clientPort, socketToIpAddressMap[clientSocket], R::Net::getRTTOfClient(clientSocket)};
     lobbiesMap[uuid].isLobbyComplete = true;
     lobbiesMap[uuid].Print();
 }

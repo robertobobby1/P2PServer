@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include <cstdint>
 #include <queue>
 #include <execinfo.h>
@@ -61,7 +60,6 @@
 #    pragma message("This is an unknown OS")
 #endif
 
-
 #include <stdio.h>
 
 #ifdef DISABLE_LOGGING
@@ -73,10 +71,9 @@
 #endif
 
 #define BIND_FN(fn)                                             \
-    [this](auto&&... args) -> decltype(auto) {                  \
+    [this](auto &&...args) -> decltype(auto) {                  \
         return this->fn(std::forward<decltype(args)>(args)...); \
     }
-
 
 namespace R {
     class Buffer {
@@ -349,7 +346,6 @@ namespace R::Utils {
 #    include <Windows.h>
 #endif
 
-
 namespace R::Net {
 
 #if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
@@ -571,7 +567,7 @@ namespace R::Net {
 
         inline Buffer readMessage() {
             auto readResponse = Net::readMessage(_socket, "[Client] Couldn't read message");
-            if (readResponse.size < 0) {
+            if (readResponse.size <= 0) {
                 isRunning = false;
             }
             return readResponse;
@@ -586,7 +582,7 @@ namespace R::Net::P2P {
 
     inline const int MAX_PACKAGE_LENGTH = 40;
     inline const int SECURITY_HEADER_LENGTH = 23;
-    inline const char* SECURITY_HEADER = "0sdFGeVi3ItN1qwsHp3mcDF";
+    inline const char *SECURITY_HEADER = "0sdFGeVi3ItN1qwsHp3mcDF";
     inline const int UUID_LENGTH = 5;
 
     enum ClientClientHeaderFlags {
@@ -631,7 +627,7 @@ namespace R::Net::P2P {
         SendUUID,
     };
 
-    inline bool isValidAuthedRequest(Buffer& buffer) {
+    inline bool isValidAuthedRequest(Buffer &buffer) {
         return Utils::isInRange(buffer.size, SECURITY_HEADER_LENGTH + 1, MAX_PACKAGE_LENGTH) && strncmp(buffer.ini, SECURITY_HEADER, SECURITY_HEADER_LENGTH) == 0;
     }
 
@@ -643,11 +639,11 @@ namespace R::Net::P2P {
         return buffer;
     }
 
-    inline uint8_t getProtocolHeader(Buffer& buffer) {
+    inline uint8_t getProtocolHeader(Buffer &buffer) {
         return buffer.ini[SECURITY_HEADER_LENGTH];
     }
 
-    inline Buffer getPayload(Buffer& buffer) {
+    inline Buffer getPayload(Buffer &buffer) {
         auto payloadBuffer = Buffer(buffer.size);
         auto headerSize = SECURITY_HEADER_LENGTH + 1;
 
@@ -714,7 +710,7 @@ namespace R::Net::P2P {
         return buffer;
     }
 
-    inline Buffer createClientPrivateConnectBuffer(std::string& uuid, uint16_t clientPort) {
+    inline Buffer createClientPrivateConnectBuffer(std::string &uuid, uint16_t clientPort) {
         auto buffer = createClientBuffer(LobbyPrivacyType::Private, ClientActionType::Connect);
 
         buffer.write(htons(clientPort));
@@ -788,7 +784,7 @@ namespace R::Net::P2P {
         return buffer;
     }
 
-    inline Buffer createServerSendUUIDBuffer(std::string& uuid) {
+    inline Buffer createServerSendUUIDBuffer(std::string &uuid) {
         auto buffer = createSecuredBuffer();
         auto headerFlags = createServerProtocolHeader(ServerActionType::SendUUID);
 
@@ -805,7 +801,7 @@ namespace R::Net::P2P {
         return ServerActionType::SendUUID;
     }
 
-    inline std::string getUUIDFromSendUUIDBuffer(Buffer& buffer) {
+    inline std::string getUUIDFromSendUUIDBuffer(Buffer &buffer) {
         auto protocolHeader = getProtocolHeader(buffer);
         auto actionType = getServerActionTypeFromHeaderByte(protocolHeader);
 
@@ -816,7 +812,7 @@ namespace R::Net::P2P {
         return std::string(payload.ini, UUID_LENGTH);
     }
 
-    inline ServerConnectPayload getPayloadFromServerConnectBuffer(Buffer& buffer) {
+    inline ServerConnectPayload getPayloadFromServerConnectBuffer(Buffer &buffer) {
         auto protocolHeader = getProtocolHeader(buffer);
         auto actionType = getServerActionTypeFromHeaderByte(protocolHeader);
 
@@ -891,7 +887,7 @@ namespace R::Net::P2P {
             return instance;
         }
 
-        static inline bool isKeepAlivePackage(Buffer& buffer) {
+        static inline bool isKeepAlivePackage(Buffer &buffer) {
             return isValidAuthedRequest(buffer) && getProtocolHeader(buffer) == KeepAliveHeader;
         }
 
@@ -902,7 +898,7 @@ namespace R::Net::P2P {
             return sendKeepAlivePackage(socket, buffer);
         }
 
-        static inline int sendKeepAlivePackage(Socket socket, Buffer& buffer) {
+        static inline int sendKeepAlivePackage(Socket socket, Buffer &buffer) {
             return Net::sendMessage(socket, buffer, "[Keep Alive] Client socket disconected!");
         }
 
@@ -921,7 +917,7 @@ namespace R::Net::P2P {
 
             while (keepRunning) {
                 std::this_thread::sleep_for(std::chrono::seconds(timerInSeconds));
-                for (auto& socket : keepAliveSockets) {
+                for (auto &socket : keepAliveSockets) {
                     sendResponse = sendKeepAlivePackage(socket, buffer);
                     if (sendResponse != -1) {
                         continue;
@@ -962,6 +958,11 @@ namespace R::Net::P2P {
 }  // namespace R::Net::P2P
 
 namespace R::Net {
+
+    struct AcceptResponseWithIp {
+        Socket socket;
+        in_addr ipAddress;
+    };
 
     class Server {
        public:
@@ -1042,17 +1043,20 @@ namespace R::Net {
             onError(_socket, true, "[Server] Closing the server socket!");
         }
 
-        inline Socket acceptNewConnection(bool checkErrors = true) {
+        inline AcceptResponseWithIp acceptNewConnection(bool checkErrors = true) {
+            struct sockaddr_in clientAddress;
+            socklen_t addressLength = sizeof(sockaddr_in);
+
             if (!isRunning) {
                 RLog("[Server] Cannot accept connections if server is not running");
-                return -1;
+                return {-1};
             }
 
-            Socket AcceptSocket = accept(_socket, NULL, NULL);
+            Socket AcceptSocket = accept(_socket, (struct sockaddr *)&clientAddress, &addressLength);
             if (checkErrors && checkForErrors(AcceptSocket, SocketError, "[Server] Error while accepting new connections", true))
-                return -1;
+                return {-1};
 
-            return AcceptSocket;
+            return {AcceptSocket, clientAddress.sin_addr};
         }
 
         inline int sendMessage(Socket socket, Buffer buff) {

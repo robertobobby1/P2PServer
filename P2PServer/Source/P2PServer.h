@@ -10,7 +10,6 @@
 
 #include "R.h"
 #include "NetworkStructs.h"
-#include "NetworkUtils.h"
 
 namespace Rp2p = R::Net::P2P;
 
@@ -66,4 +65,6 @@ namespace P2PServer {
     std::thread cleanUpMarkedLobbiesThread();
 
     inline std::unordered_map<std::string, Lobby> lobbiesMap;
+    inline std::unordered_map<R::Net::Socket, in_addr> socketToIpAddressMap;
+
 }  // namespace P2PServer
