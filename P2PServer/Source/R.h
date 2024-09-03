@@ -191,6 +191,25 @@ namespace R {
     };
 }  // namespace R
 
+#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
+#    include <sys/socket.h>
+#    include <netinet/in.h>
+#    include <netinet/tcp.h>
+#    include <arpa/inet.h>
+#    include <unistd.h>
+#    include <execinfo.h>
+#    include <fcntl.h>
+#    include <netdb.h>
+#elif defined(PLATFORM_WINDOWS)
+#    include <WinSock2.h>
+#    include <ws2tcpip.h>
+#    pragma comment(lib, "winmm.lib")
+#    pragma comment(lib, "WS2_32.lib")
+#    include <Windows.h>
+#    include <io.h>
+#endif
+
+
 namespace R::Utils {
 
     inline bool isInRange(int value, int lowRange, int highRange) {
@@ -295,10 +314,7 @@ namespace R::Utils {
         return (unsigned int)(rand() % (max - min + 1) + min);
     }
 
-    #if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
-
-    #include <execinfo.h>
-    #include <unistd.h>
+#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
 
     inline void onExceptionHandler(int sig) {
         void *array[10];
@@ -317,7 +333,7 @@ namespace R::Utils {
         signal(SIGSEGV, onExceptionHandler);
     }
 
-    #endif
+#endif
 
     inline void hexDump(Buffer buffer) {
         unsigned char *buf = (unsigned char *)buffer.ini;
@@ -339,24 +355,6 @@ namespace R::Utils {
 }  // namespace R::Utils
 
 #include <iostream>
-
-#if defined(PLATFORM_MACOS) || defined(PLATFORM_LINUX)
-#    include <sys/socket.h>
-#    include <netinet/in.h>
-#    include <netinet/tcp.h>
-#    include <arpa/inet.h>
-#    include <unistd.h>
-#    include <fcntl.h>
-#    include <netdb.h>
-#elif defined(PLATFORM_WINDOWS)
-#    include <WinSock2.h>
-#    include <ws2tcpip.h>
-#    pragma comment(lib, "winmm.lib")
-#    pragma comment(lib, "WS2_32.lib")
-#    include <Windows.h>
-#    include <io.h>
-#endif
-
 
 namespace R::Net {
 
