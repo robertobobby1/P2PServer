@@ -1,9 +1,9 @@
 #include "P2PServer.h"
 
 void P2PServer::run() {
-    R::Utils::stackTracing();
     // turn SIGPIPE into EPIPE so that the program doesn't terminate
-    signal(SIGPIPE, SIG_IGN);
+    R::Utils::avoidSigPipe();
+    R::Utils::stackTracing();
 
     srand((unsigned)time(NULL));
     FD_ZERO(&readSocketsFDSet);

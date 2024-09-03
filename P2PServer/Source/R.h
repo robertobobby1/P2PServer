@@ -236,7 +236,7 @@ namespace R::Utils {
             } else if constexpr (std::is_same_v<T, int>) {
                 return -1;
             } else {
-                return nullptr;
+                return NULL;
             }
         }
 
@@ -333,6 +333,16 @@ namespace R::Utils {
         signal(SIGSEGV, onExceptionHandler);
     }
 
+    inline void avoidSigPipe() {
+        signal(SIGPIPE, SIG_IGN);
+    }
+
+#elif defined(PLATFORM_WINDOWS)
+
+    // make it multipplatform but useless
+    inline void stackTracing() {}
+    inline void avoidSigPipe() {}
+
 #endif
 
     inline void hexDump(Buffer buffer) {
@@ -411,6 +421,7 @@ namespace R::Net {
 
     inline uint32_t getRTTOfClient(Socket _socket) {
         // TODO how to get RTT in windows
+        return 0;
     }
 
     inline bool setServerNonBlockingMode(Socket socket) {
