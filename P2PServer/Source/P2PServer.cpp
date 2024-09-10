@@ -6,6 +6,7 @@ void P2PServer::run() {
     R::Utils::stackTracing();
 
     srand((unsigned)time(NULL));
+
     FD_ZERO(&readSocketsFDSet);
 
     socketQueue = std::queue<R::Net::Socket>();
@@ -15,6 +16,9 @@ void P2PServer::run() {
     server = R::Net::Server::makeAndRun(PORT, BACKLOG);
     if (!server->isRunning)
         return;
+
+    // set non blocking for accept call
+    server->setServerNonBlocking();
 
     for (unsigned int i = 0; i < MAX_workers; i++) {
         workers.push_back(std::thread(worker));
@@ -36,7 +40,7 @@ void P2PServer::run() {
         fd_set temporarySet = readSocketsFDSet;
         auto selectResponse = select(FD_SETSIZE, &temporarySet, NULL, NULL, NULL);
         if (selectResponse < 0) {
-            R::Net::onError(server->_socket, false, "[Logic Server] Error during select");
+            R::Net::onError(server->_socket, true, "[Logic Server] Error during select");
             keepRunning = false;
             break;
         }
@@ -48,6 +52,7 @@ void P2PServer::run() {
 
             R::Net::Socket socketToAttend;
             if (activeSocket == server->_socket) {
+                socketToAttend = activeSocket;
                 auto acceptResponse = server->acceptNewConnection(false);
                 auto acceptSocket = acceptResponse.socket;
                 socketToIpAddressMap[acceptSocket] = acceptResponse.ipAddress;
@@ -80,6 +85,11 @@ void P2PServer::run() {
 }
 
 void P2PServer::removeFDFromSet(R::Net::Socket socket) {
+    if (closedSockets.find(socket) != closedSockets.end()) {
+        return;
+    }
+
+    closedSockets.insert(socket);
     R::Utils::removeFromVector(activeSockets, socket);
     socketToIpAddressMap.erase(socket);
 
@@ -127,13 +137,14 @@ void P2PServer::cleanUpLobbyByUUID(std::string &uuid, bool tryToReconnect) {
 
     removeFromMatchmakingQueueByUUID(uuid);
 
-    std::unique_lock<std::mutex> lock(*lobbiesMap[uuid].mutex);
+    std::unique_lock<std::mutex> lock(lobbiesMapMutex);
     auto &lobby = lobbiesMap[uuid];
     auto isValidToReconnect = tryToReconnect && lobby.lobbyPrivacyType == Rp2p::LobbyPrivacyType::Public;
 
     if (lobby.isLobbyComplete) {
         // given a public match, check if socket is still active, if so reconnect
         if (isValidToReconnect && Rp2p::KeepAliveManager::isSocketActive(lobby.peer2.socket)) {
+            lock.unlock();
             findRandomMatch(lobby.peer2.socket, lobby.peer2.port);
         } else {
             R::Utils::setThreadSafeToQueue(socketsToCloseQueue, socketsToCloseQueueMutex, lobby.peer2.socket);
@@ -154,8 +165,8 @@ std::thread P2PServer::cleanUpMarkedLobbiesThread() {
     return std::thread([]() -> void {
         while (keepRunning) {
             std::this_thread::sleep_for(std::chrono::seconds(CLEANUP_TIMER_SECONDS));
+            std::unique_lock<std::mutex> lock(lobbiesMapMutex);
             for (auto i = lobbiesMap.begin(); i != lobbiesMap.end(); i++) {
-                std::unique_lock<std::mutex> lock(*i->second.mutex);
                 if (!i->second.isMarkedForCleanup) {
                     continue;
                 }
@@ -230,7 +241,7 @@ bool P2PServer::checkLobbyValidity(std::string &uuid) {
         return false;
     }
 
-    std::unique_lock<std::mutex> lock(*lobbiesMap[uuid].mutex);
+    std::unique_lock<std::mutex> lock(lobbiesMapMutex);
     if (lobbiesMap[uuid].isMarkedForCleanup) {
         return false;
     }
@@ -251,7 +262,7 @@ void P2PServer::connectPeersIfNecessary(std::string &uuid) {
     }
 
     Lobby lobby = lobbiesMap[uuid];
-    std::unique_lock<std::mutex> lock(*lobby.mutex);
+    std::unique_lock<std::mutex> lock(lobbiesMapMutex);
     if (!lobby.isLobbyComplete) {
         sendUuidToClient(lobby.peer1.socket, uuid);
         return;
@@ -304,7 +315,7 @@ std::string P2PServer::findRandomMatch(R::Net::Socket clientSocket, uint16_t cli
         return startNewLobby(clientSocket, Rp2p::LobbyPrivacyType::Public, clientPort);
     }
 
-    std::unique_lock<std::mutex> lock(*lobbiesMap[uuid].mutex);
+    std::unique_lock<std::mutex> lock(lobbiesMapMutex);
     if (lobbiesMap[uuid].isMarkedForCleanup || lobbiesMap[uuid].isLobbyComplete) {
         return startNewLobby(clientSocket, Rp2p::LobbyPrivacyType::Public, clientPort);
     }
@@ -321,7 +332,7 @@ void P2PServer::joinPrivateMatch(R::Net::Socket clientSocket, std::string &uuid,
         return;
     }
 
-    std::unique_lock<std::mutex> lock(*lobbiesMap[uuid].mutex);
+    std::unique_lock<std::mutex> lock(lobbiesMapMutex);
     if (lobbiesMap[uuid].isLobbyComplete) {
         cleanUpLobbyBySocket(clientSocket);
         return;

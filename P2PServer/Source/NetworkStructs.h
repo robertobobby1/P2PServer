@@ -35,8 +35,6 @@ struct Lobby {
     bool isLobbyComplete = false;
     bool isMarkedForCleanup = false;
 
-    std::mutex* mutex = new std::mutex();
-
     void Print() {
         RLog("\nStart lobby info ---- %s\n", this->ID_Lobby.c_str());
         this->peer1.print();

@@ -188,6 +188,10 @@ namespace R {
                 ini = newBuffer;
             }
         }
+
+        void print() {
+            RLog("[Buffer] message: %s, size: %i\n", ini, (int)size);
+        }
     };
 }  // namespace R
 
@@ -234,6 +238,8 @@ namespace R::Utils {
             if constexpr (std::is_same_v<T, std::string>) {
                 return "";
             } else if constexpr (std::is_same_v<T, int>) {
+                return -1;
+            } else if constexpr (std::is_same_v<T, unsigned int>) {
                 return -1;
             } else {
                 return NULL;
@@ -893,7 +899,6 @@ namespace R::Net::P2P {
 
 namespace R::Net::P2P {
 
-    typedef std::function<Socket()> LogCallbackFunction;
     inline const int defaultTimerInSeconds = 10;
     inline uint8_t KeepAliveHeader = 255;
 
@@ -1081,9 +1086,13 @@ namespace R::Net {
 
             Socket AcceptSocket = accept(_socket, (struct sockaddr *)&clientAddress, &addressLength);
             if (checkErrors && checkForErrors(AcceptSocket, SocketError, "[Server] Error while accepting new connections", true))
-                return {(Socket) - 1};
+                return {(Socket)-1};
 
             return {AcceptSocket, clientAddress.sin_addr};
+        }
+
+        inline bool setServerNonBlocking() {
+            return setServerNonBlockingMode(_socket);
         }
 
         inline int sendMessage(Socket socket, Buffer buff) {

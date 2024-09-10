@@ -7,6 +7,7 @@
 #include <mutex>
 #include <queue>
 #include <unordered_map>
+#include <set>
 
 #include "R.h"
 #include "NetworkStructs.h"
@@ -32,6 +33,7 @@ namespace P2PServer {
 
     inline std::queue<R::Net::Socket> socketsToCloseQueue;
     inline std::mutex socketsToCloseQueueMutex;
+    inline std::set<R::Net::Socket> closedSockets;
 
     void addFDToSet(R::Net::Socket socket);
     void removeFDFromSet(R::Net::Socket socket);
@@ -65,6 +67,7 @@ namespace P2PServer {
     std::thread cleanUpMarkedLobbiesThread();
 
     inline std::unordered_map<std::string, Lobby> lobbiesMap;
+    inline std::mutex lobbiesMapMutex;
     inline std::unordered_map<R::Net::Socket, in_addr> socketToIpAddressMap;
 
 }  // namespace P2PServer
