@@ -1,5 +1,4 @@
 #include "P2PServer.h"
-#include <execinfo.h>
 
 // #define RUN_TESTS
 

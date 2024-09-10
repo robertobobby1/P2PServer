@@ -12,12 +12,11 @@ struct Peer {
 
     void print() {
         char ipBuffer[INET_ADDRSTRLEN]{0};
-        char ip6Buffer[INET6_ADDRSTRLEN]{0};
 
         RLog("\nStart peer info ---- %i\n\n", socket);
         RLog("Peer Port: %i\n", this->port);
 
-        RLog("Peer IP Address: %s\n", inet_ntoa(this->ipAddress));
+        RLog("Peer IP Address: %s\n", inet_ntop(AF_INET, &this->ipAddress, ipBuffer, INET_ADDRSTRLEN));
 
         RLog("Average RTT: %i\n", this->averageRTT);
         RLog("\nEnd peer info   ---- %i\n\n", socket);
