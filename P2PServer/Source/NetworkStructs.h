@@ -32,7 +32,6 @@ struct Lobby {
 
     R::Net::P2P::LobbyPrivacyType lobbyPrivacyType;
     bool isLobbyComplete = false;
-    bool isMarkedForCleanup = false;
 
     void Print() {
         RLog("\nStart lobby info ---- %s\n", this->ID_Lobby.c_str());
