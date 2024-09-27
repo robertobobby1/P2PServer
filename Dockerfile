@@ -16,7 +16,7 @@ FROM alpine:3.17.0
 
 RUN apk update && \
     apk add --no-cache \
-    libstdc++=14.2.0-r3
+    libstdc++=12.2.1_git20220924-r4
 
 RUN addgroup -S p2pServer && adduser -S p2pServer -G p2pServer
 USER p2pServer
