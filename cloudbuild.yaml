@@ -1,0 +1,13 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker:latest"
+    args:
+      - build
+      - "--network=cloudbuild"
+      - "-t"
+      - eu.gcr.io/p2p-server/production/$COMMIT_SHA
+      - .
+images:
+  - eu.gcr.io/p2p-server/production/$COMMIT_SHA
+options:
+  substitutionOption: ALLOW_LOOSE
+  logging: CLOUD_LOGGING_ONLY
