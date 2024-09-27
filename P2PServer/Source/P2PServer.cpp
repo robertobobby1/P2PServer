@@ -3,8 +3,6 @@
 void P2PServer::run() {
     timeval selectTimeout{SELECT_TIMEOUT_SECONDS, 0};
     // turn SIGPIPE into EPIPE so that the program doesn't terminate
-    R::Utils::avoidSigPipe();
-    R::Utils::stackTracing();
 
     srand((unsigned)time(NULL));
 
@@ -241,17 +239,12 @@ void P2PServer::connectPeersIfNecessary(std::string &uuid) {
     }
 
     Lobby lobby = lobbiesMap[uuid];
-
-    if (lobby.peer1.socket == 0 || lobby.peer2.socket == 0 || uuid == "" || uuid == " ") {
-        auto x = 5;
-    }
-
     if (!lobby.isLobbyComplete) {
         sendUuidToClient(lobby.peer1.socket, uuid);
         return;
     }
 
-    uint16_t delayPeer2, delayPeer1 = 0;
+    uint16_t delayPeer2 = 0, delayPeer1 = 0;
     if (lobby.peer2.averageRTT > lobby.peer1.averageRTT) {
         delayPeer2 = lobby.peer2.averageRTT - lobby.peer1.averageRTT;
     } else {

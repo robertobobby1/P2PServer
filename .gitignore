@@ -420,3 +420,4 @@ NoBiggy/x64/**
 Makefile
 .vscode/
 bin/
+build/
