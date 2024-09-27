@@ -6,6 +6,10 @@ steps:
       - "-t"
       - eu.gcr.io/p2p-server/production/$COMMIT_SHA
       - .
+  - name: "gcr.io/cloud-builders/docker:latest"
+    args:
+      - push
+      - eu.gcr.io/p2p-server/production/$COMMIT_SHA
 images:
   - eu.gcr.io/p2p-server/production/$COMMIT_SHA
 options:
