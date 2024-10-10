@@ -1,0 +1,25 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "run cmake",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "./build"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}", // can change to wherever your makefile is
+                "env": {},
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": "**/*.{cpp,cxx}" // adjust globbing as needed
+            },
+            "problemMatcher": ["$gcc"], // trigger suggestions to see other options. Ex. "$msvc".
+        }   
+    ]
+}

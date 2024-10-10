@@ -418,6 +418,7 @@ NoBiggy/x64/**
 
 *.make
 Makefile
-.vscode/
+
+.vscode/settings.json
 bin/
 build/
