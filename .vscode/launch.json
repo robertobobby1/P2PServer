@@ -13,7 +13,6 @@
       "externalConsole": false,
       "MIMode": "lldb",
       "preLaunchTask": "run cmake"
-
     }
   ]  
 }

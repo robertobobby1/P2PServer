@@ -3860,11 +3860,16 @@ namespace R::Utils {
     template <typename T>
     inline void removeFromQueue(std::queue<T> &queue, T &value) {
         auto queueC = getQueueCObject(queue);
+        auto toRemove = queueC.end();
 
         for (auto it = queueC.begin(); it != queueC.end(); ++it) {
             if (*it == value) {
-                queueC.erase(it);
+                toRemove = it;
             }
+        }
+
+        if (toRemove != queueC.end()) {
+            queueC.erase(toRemove);
         }
     }
 
@@ -4077,6 +4082,10 @@ namespace R::Net {
             return true;
         }
         return false;
+    }
+
+    inline bool isValidSocket(Socket socket) {
+        return socket >= 0 && socket < FD_SETSIZE;
     }
 }  // namespace R::Net
 
@@ -4553,10 +4562,18 @@ namespace R::Net::P2P {
         inline void run() {
             int sendResponse = 0;
             auto buffer = createSecuredBuffer();
+            auto forceRecheck = false;
             buffer.write(KeepAliveHeader);
 
             while (keepRunning) {
-                std::this_thread::sleep_for(std::chrono::seconds(timerInSeconds));
+                if (!forceRecheck) {
+                    std::this_thread::sleep_for(std::chrono::seconds(timerInSeconds));
+                }
+
+                forceRecheck = false;
+                if (keepAliveSockets.size() == 0) {
+                    continue;
+                }
                 for (auto& socket : keepAliveSockets) {
                     sendResponse = sendKeepAlivePackage(socket.first, buffer);
                     if (maxPackagesToSend == ++socket.second) {
@@ -4571,6 +4588,9 @@ namespace R::Net::P2P {
                     if (onClosedCallback != nullptr) {
                         onClosedCallback(socket.first);
                     }
+
+                    forceRecheck = true;
+                    break;
                 }
             }
         }

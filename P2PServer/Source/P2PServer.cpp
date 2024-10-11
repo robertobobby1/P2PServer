@@ -48,7 +48,7 @@ void P2PServer::run() {
 
         R::Net::Socket socketToAttend;
         for (auto &activeSocket : activeSockets) {
-            if (!FD_ISSET(activeSocket, &readSocketsFDSet)) {
+            if (!R::Net::isValidSocket(activeSocket) || !FD_ISSET(activeSocket, &readSocketsFDSet)) {
                 continue;
             }
 
@@ -88,6 +88,9 @@ void P2PServer::run() {
 }
 
 void P2PServer::removeFDFromSet(R::Net::Socket socket) {
+    if (!R::Net::isValidSocket(socket)) {
+        return;
+    }
     R::Utils::removeFromVector(activeSockets, socket);
     socketToIpAddressMap.erase(socket);
 
